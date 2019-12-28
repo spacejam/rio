@@ -1,0 +1,11 @@
+[package]
+name = "rio"
+version = "0.1.0"
+authors = ["Tyler Neely <t@jujit.su>"]
+edition = "2018"
+description = "The io library that I want to use"
+license = "GPL-3.0"
+
+
+[dependencies]
+libc = "0.2.66"
