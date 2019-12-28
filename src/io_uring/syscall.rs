@@ -10,6 +10,8 @@ pub unsafe fn setup(
     entries: c_uint,
     p: *mut Params,
 ) -> c_int {
+    assert_eq!(entries.count_ones(), 1);
+    assert!((1..=4096).contains(&entries));
     syscall(SETUP, entries as c_long, p as c_long) as c_int
 }
 
