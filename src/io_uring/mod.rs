@@ -1,8 +1,9 @@
 use std::{
+    convert::TryFrom,
     fs::File,
     io::{self, IoSlice, IoSliceMut},
     os::unix::io::AsRawFd,
-    sync::atomic::Ordering::SeqCst,
+    sync::atomic::Ordering::{Acquire, Release},
 };
 
 use libc::{c_void, mmap};
@@ -154,8 +155,8 @@ impl MyUring {
             return 0;
         }
 
-        let ktail =
-            unsafe { (*self.sq.ktail).load(SeqCst) };
+        let mut ktail =
+            unsafe { (*self.sq.ktail).load(Acquire) };
         let mut to_submit =
             self.sq.sqe_tail - self.sq.sqe_head;
         for index in (0..to_submit).rev() {
@@ -164,30 +165,40 @@ impl MyUring {
                 *(self.sq.array.add(index as usize)) =
                     self.sq.sqe_head & mask;
             }
+            ktail += 1;
+            self.sq.sqe_head += 1;
         }
 
-        0
+        let swapped = unsafe {
+            (*self.sq.ktail).swap(ktail, Release)
+        };
+
+        assert_eq!(swapped, ktail - to_submit);
+
+        to_submit
     }
 
     pub fn submit_all(&mut self) -> io::Result<()> {
         // TODO skip submission if we don't need to do it
         // TODO for polling, keep flags at 0
         let flags = IORING_ENTER_GETEVENTS;
-        let submitted = self.flush();
-        let ret = unsafe {
-            enter(
-                self.ring_fd,
-                submitted,
-                0,
-                flags,
-                std::ptr::null_mut(),
-            )
-        };
-        if ret < 0 {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(())
+        let mut submitted = self.flush();
+        while submitted > 0 {
+            let ret = unsafe {
+                enter(
+                    self.ring_fd,
+                    submitted,
+                    0,
+                    flags,
+                    std::ptr::null_mut(),
+                )
+            };
+            if ret < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            submitted -= u32::try_from(ret).unwrap();
         }
+        Ok(())
     }
 
     pub fn head(&self) -> *mut c_void {
