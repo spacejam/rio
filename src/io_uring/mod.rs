@@ -20,6 +20,10 @@ use syscall::{enter, setup};
 
 use std::sync::atomic::AtomicU32;
 
+/// A good kernel IO interface.
+/// Sounds kinda like urine [0].
+///
+/// 0. https://lwn.net/ml/linux-fsdevel/20190109160036.GK6310@bombadil.infradead.org/
 #[derive(Debug, Copy, Clone)]
 pub struct Uring {
     pub sq: Sq,
@@ -28,6 +32,7 @@ pub struct Uring {
     pub ring_fd: libc::c_int,
 }
 
+/// Sprays uring submissions.
 #[derive(Debug, Copy, Clone)]
 pub struct Sq {
     pub khead: *const AtomicU32,
@@ -44,6 +49,7 @@ pub struct Sq {
     pub ring_ptr: *const libc::c_void,
 }
 
+/// Consumes uring completions.
 #[derive(Debug, Copy, Clone)]
 pub struct Cq {
     pub khead: *const AtomicU32,
