@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use libc::{c_int, c_long, c_uint, syscall};
 
 use super::Params;
@@ -10,8 +12,15 @@ pub unsafe fn setup(
     entries: c_uint,
     p: *mut Params,
 ) -> c_int {
-    assert_eq!(entries.count_ones(), 1);
-    assert!((1..=4096).contains(&entries));
+    assert_eq!(
+        entries.count_ones(),
+        1,
+        "entries must be a power of 2"
+    );
+    assert!(
+        (1..=4096).contains(&entries),
+        "entries must be between 1 and 4096 (inclusive)"
+    );
     syscall(SETUP, entries as c_long, p as c_long) as c_int
 }
 

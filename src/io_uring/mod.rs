@@ -2,60 +2,72 @@ use std::{
     convert::TryFrom,
     fs::File,
     io::{self, IoSlice, IoSliceMut},
+    ops::{Deref, DerefMut},
     os::unix::io::AsRawFd,
     sync::atomic::Ordering::{Acquire, Release},
 };
-
-use libc::{c_void, mmap};
 
 mod io_uring;
 mod syscall;
 
 pub use io_uring::{
     Cqe, CqringOffsets, Params, Sqe, SqringOffsets, Uring,
-    IORING_ENTER_GETEVENTS, IORING_OFF_SQ_RING,
-    IORING_OP_READV, IORING_OP_WRITEV, IORING_SETUP_SQPOLL,
+    IORING_ENTER_GETEVENTS, IORING_OFF_CQ_RING,
+    IORING_OFF_SQES, IORING_OFF_SQ_RING, IORING_OP_READV,
+    IORING_OP_WRITEV, IORING_SETUP_SQPOLL,
 };
 
-use syscall::{enter, register, setup};
+use syscall::{enter, setup};
 
 pub struct MyUring {
-    ptr: *mut c_void,
-    params: Params,
-    pending: usize,
+    uring: Box<Uring>,
+    params: Box<Params>,
 }
 
-impl std::ops::Deref for MyUring {
+impl Deref for MyUring {
     type Target = Uring;
 
     fn deref(&self) -> &Uring {
-        unsafe { &*(self.ptr as *mut Uring) }
+        &self.uring
     }
 }
 
 impl std::ops::DerefMut for MyUring {
     fn deref_mut(&mut self) -> &mut Uring {
-        unsafe { &mut *(self.ptr as *mut Uring) }
+        &mut self.uring
     }
 }
 
 impl MyUring {
-    pub fn new(depth: usize) -> MyUring {
-        let mut params: Params =
-            unsafe { std::mem::zeroed() };
-        let ring_fd = unsafe {
-            setup(depth as _, &mut params as *mut Params)
-        };
+    pub fn new(depth: usize) -> io::Result<MyUring> {
+        let mut params: Box<Params> =
+            Box::new(Params::default());
 
-        let mmap_sz: libc::size_t = params.sq_off.array
-            as libc::size_t
-            + (params.sq_entries as libc::size_t
+        let ring_fd = unsafe {
+            setup(depth as _, params.deref_mut() as *mut _)
+        };
+        if ring_fd < 0 {
+            println!("src/io_uring/mod.rs:50");
+            return Err(io::Error::last_os_error());
+        }
+
+        let mut uring: Box<Uring> =
+            Box::new(unsafe { std::mem::zeroed() });
+
+        uring.sq.ring_sz = params.sq_off.array as usize
+            + (params.sq_entries as usize
                 * std::mem::size_of::<u32>());
 
-        let ptr: *mut c_void = unsafe {
-            mmap(
+        uring.cq.ring_sz = params.cq_off.cqes as usize
+            + (params.cq_entries as usize
+                * std::mem::size_of::<u32>());
+
+        // TODO IORING_FEAT_SINGLE_MMAP for sq
+
+        let sq_ring_ptr: *mut libc::c_void = unsafe {
+            libc::mmap(
                 std::ptr::null_mut(),
-                mmap_sz,
+                uring.sq.ring_sz,
                 libc::PROT_READ | libc::PROT_WRITE,
                 libc::MAP_SHARED | libc::MAP_POPULATE,
                 ring_fd,
@@ -63,19 +75,194 @@ impl MyUring {
             ) as _
         };
 
-        MyUring {
-            ptr,
-            params,
-            pending: 0,
+        if sq_ring_ptr.is_null()
+            || sq_ring_ptr == libc::MAP_FAILED
+        {
+            println!("src/io_uring/mod.rs:80");
+            return Err(io::Error::last_os_error());
         }
+
+        uring.sq.ring_ptr = sq_ring_ptr;
+
+        // TODO IORING_FEAT_SINGLE_MMAP for cq
+
+        let cq_ring_ptr: *mut libc::c_void = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                uring.cq.ring_sz,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED | libc::MAP_POPULATE,
+                ring_fd,
+                IORING_OFF_CQ_RING as libc::off_t,
+            ) as _
+        };
+
+        if cq_ring_ptr.is_null()
+            || cq_ring_ptr == libc::MAP_FAILED
+        {
+            println!("src/io_uring/mod.rs:102");
+            return Err(io::Error::last_os_error());
+        }
+
+        uring.cq.ring_ptr = cq_ring_ptr;
+
+        // sq->khead = sq->ring_ptr + p->sq_off.head;
+        uring.sq.khead = unsafe {
+            uring
+                .sq
+                .ring_ptr
+                .add(params.sq_off.head as usize)
+                as _
+        };
+
+        // sq->ktail = sq->ring_ptr + p->sq_off.tail;
+        uring.sq.ktail = unsafe {
+            uring
+                .sq
+                .ring_ptr
+                .add(params.sq_off.tail as usize)
+                as _
+        };
+
+        // sq->kring_mask = sq->ring_ptr + p->sq_off.ring_mask;
+        uring.sq.kring_mask = unsafe {
+            uring
+                .sq
+                .ring_ptr
+                .add(params.sq_off.ring_mask as usize)
+                as _
+        };
+
+        // sq->kring_entries = sq->ring_ptr + p->sq_off.ring_entries;
+        uring.sq.kring_entries =
+            unsafe {
+                uring.sq.ring_ptr.add(
+                    params.sq_off.ring_entries as usize,
+                ) as _
+            };
+
+        // sq->kflags = sq->ring_ptr + p->sq_off.flags;
+        uring.sq.kflags = unsafe {
+            uring
+                .sq
+                .ring_ptr
+                .add(params.sq_off.flags as usize)
+                as _
+        };
+
+        // sq->kdropped = sq->ring_ptr + p->sq_off.dropped;
+        uring.sq.kdropped = unsafe {
+            uring
+                .sq
+                .ring_ptr
+                .add(params.sq_off.dropped as usize)
+                as _
+        };
+
+        // sq->array = sq->ring_ptr + p->sq_off.array;
+        uring.sq.array = unsafe {
+            uring
+                .sq
+                .ring_ptr
+                .add(params.sq_off.array as usize)
+                as _
+        };
+
+        // size = p->sq_entries * sizeof(struct io_uring_sqe);
+        let size: usize = params.sq_entries as usize
+            * std::mem::size_of::<Sqe>();
+
+        let sqes_ptr: *mut Sqe = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                size,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED | libc::MAP_POPULATE,
+                ring_fd,
+                IORING_OFF_SQES as libc::off_t,
+            ) as _
+        };
+
+        if sqes_ptr.is_null()
+            || sqes_ptr == libc::MAP_FAILED as *mut Sqe
+        {
+            println!("src/io_uring/mod.rs:189");
+            return Err(io::Error::last_os_error());
+        }
+
+        uring.sq.sqes = sqes_ptr;
+
+        // cq->khead = cq->ring_ptr + p->cq_off.head;
+        uring.cq.khead = unsafe {
+            uring
+                .cq
+                .ring_ptr
+                .add(params.cq_off.head as usize)
+                as _
+        };
+
+        // cq->ktail = cq->ring_ptr + p->cq_off.tail;
+        uring.cq.ktail = unsafe {
+            uring
+                .cq
+                .ring_ptr
+                .add(params.cq_off.tail as usize)
+                as _
+        };
+
+        // cq->kring_mask = cq->ring_ptr + p->cq_off.ring_mask;
+        uring.cq.kring_mask = unsafe {
+            uring
+                .cq
+                .ring_ptr
+                .add(params.cq_off.ring_mask as usize)
+                as _
+        };
+
+        // cq->kring_entries = cq->ring_ptr + p->cq_off.ring_entries;
+        uring.cq.kring_entries =
+            unsafe {
+                uring.cq.ring_ptr.add(
+                    params.cq_off.ring_entries as usize,
+                ) as _
+            };
+
+        // cq->koverflow = cq->ring_ptr + p->cq_off.overflow;
+        uring.cq.koverflow = unsafe {
+            uring
+                .cq
+                .ring_ptr
+                .add(params.cq_off.overflow as usize)
+                as _
+        };
+
+        // cq->cqes = cq->ring_ptr + p->cq_off.cqes;
+        uring.cq.cqes = unsafe {
+            uring
+                .cq
+                .ring_ptr
+                .add(params.cq_off.cqes as usize)
+                as _
+        };
+
+        uring.flags = params.flags;
+        uring.ring_fd = ring_fd;
+
+        Ok(MyUring { uring, params })
     }
 
     pub fn get_sqe(&mut self) -> Option<&mut Sqe> {
         let next = self.sq.sqe_tail + 1;
+        println!("next is {}", next);
 
-        if (self.flags() & IORING_SETUP_SQPOLL) == 0 {
+        if (self.params.flags & IORING_SETUP_SQPOLL) == 0 {
             // non-polling mode
             let head = self.sq.sqe_head;
+            println!("head is {:?}", head);
+            println!(
+                "kring_entries is {:?}",
+                self.sq.kring_entries
+            );
             if next - head
                 <= unsafe { *self.sq.kring_entries }
             {
@@ -87,6 +274,7 @@ impl MyUring {
                 self.sq.sqe_tail = next;
                 unsafe { Some(&mut *ret) }
             } else {
+                println!("src/io_uring/mod.rs:88");
                 None
             }
         } else {
@@ -117,8 +305,6 @@ impl MyUring {
         sqe.user_data = 0;
         sqe.__bindgen_anon_3.__pad2 = [0; 3];
 
-        self.pending += 1;
-
         true
     }
 
@@ -144,8 +330,6 @@ impl MyUring {
         sqe.user_data = 0;
         sqe.__bindgen_anon_3.__pad2 = [0; 3];
 
-        self.pending += 1;
-
         true
     }
 
@@ -157,9 +341,8 @@ impl MyUring {
 
         let mut ktail =
             unsafe { (*self.sq.ktail).load(Acquire) };
-        let mut to_submit =
-            self.sq.sqe_tail - self.sq.sqe_head;
-        for index in (0..to_submit).rev() {
+        let to_submit = self.sq.sqe_tail - self.sq.sqe_head;
+        for _ in 0..to_submit {
             let index = ktail & mask;
             unsafe {
                 *(self.sq.array.add(index as usize)) =
@@ -194,6 +377,7 @@ impl MyUring {
                 )
             };
             if ret < 0 {
+                println!("enter call not supported");
                 return Err(io::Error::last_os_error());
             }
             submitted -= u32::try_from(ret).unwrap();
@@ -201,45 +385,56 @@ impl MyUring {
         Ok(())
     }
 
-    pub fn head(&self) -> *mut c_void {
-        unsafe {
-            self.ptr.add(self.params.sq_off.head as usize)
+    pub fn wait_cqe<'a>(
+        &mut self,
+    ) -> io::Result<&'a mut Cqe> {
+        loop {
+            if let Some(cqe) = self.peek_cqe() {
+                return Ok(cqe);
+            } else {
+                self.wait_for_cqe()?;
+            }
         }
     }
-    pub fn tail(&self) -> *mut c_void {
-        unsafe {
-            self.ptr.add(self.params.sq_off.tail as usize)
+
+    /// Grabs a completed `Cqe` if it's available
+    pub fn peek_cqe<'a>(&mut self) -> Option<&'a mut Cqe> {
+        let head = unsafe { *self.cq.khead };
+        let tail =
+            unsafe { (*self.cq.ktail).load(Acquire) };
+
+        if head != tail {
+            let index =
+                head & unsafe { *self.cq.kring_mask };
+            let cqe = unsafe {
+                &mut *self.cq.cqes.add(index as usize)
+            };
+            Some(cqe)
+        } else {
+            None
         }
     }
-    pub fn ring_mask(&self) -> *mut c_void {
-        unsafe {
-            self.ptr
-                .add(self.params.sq_off.ring_mask as usize)
-        }
-    }
-    pub fn ring_entries(&self) -> *mut c_void {
-        unsafe {
-            self.ptr.add(
-                self.params.sq_off.ring_entries as usize,
-            )
-        }
-    }
-    pub fn flags(&self) -> u32 {
-        let ptr: *mut c_void = unsafe {
-            self.ptr.add(self.params.sq_off.flags as usize)
+
+    fn wait_for_cqe(&mut self) -> io::Result<()> {
+        let flags = IORING_ENTER_GETEVENTS;
+        let submit = 0;
+        let wait = 1;
+        let sigset = std::ptr::null_mut();
+
+        let ret = unsafe {
+            enter(self.ring_fd, submit, wait, flags, sigset)
         };
-        let casted: *mut u32 = ptr as _;
-        unsafe { *casted }
-    }
-    pub fn dropped(&self) -> *mut c_void {
-        unsafe {
-            self.ptr
-                .add(self.params.sq_off.dropped as usize)
+        if ret < 0 {
+            return Err(io::Error::last_os_error());
         }
+
+        Ok(())
     }
-    pub fn array(&self) -> *mut c_void {
-        unsafe {
-            self.ptr.add(self.params.sq_off.array as usize)
-        }
+
+    pub fn seen(
+        &mut self,
+        _cqe: &mut Cqe,
+    ) -> io::Result<()> {
+        todo!()
     }
 }

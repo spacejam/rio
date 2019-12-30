@@ -1523,7 +1523,7 @@ fn bindgen_test_layout_Cqe() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct SqringOffsets {
     pub head: u32,
     pub tail: u32,
@@ -1667,7 +1667,7 @@ fn bindgen_test_layout_SqringOffsets() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct CqringOffsets {
     pub head: u32,
     pub tail: u32,
@@ -1783,7 +1783,7 @@ fn bindgen_test_layout_CqringOffsets() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct Params {
     pub sq_entries: u32,
     pub cq_entries: u32,
