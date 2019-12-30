@@ -2,7 +2,7 @@ use std::{
     convert::TryFrom,
     fs::File,
     io::{self, IoSlice, IoSliceMut},
-    ops::{Deref, DerefMut},
+    ops::Deref,
     os::unix::io::AsRawFd,
     sync::atomic::Ordering::{Acquire, Release},
 };
@@ -13,15 +13,14 @@ mod syscall;
 pub use io_uring::{
     Cqe, CqringOffsets, Params, Sqe, SqringOffsets, Uring,
     IORING_ENTER_GETEVENTS, IORING_OFF_CQ_RING,
-    IORING_OFF_SQES, IORING_OFF_SQ_RING, IORING_OP_READV,
-    IORING_OP_WRITEV, IORING_SETUP_SQPOLL,
+    IORING_OFF_SQES, IORING_OFF_SQ_RING, IORING_OP_FSYNC,
+    IORING_OP_READV, IORING_OP_WRITEV, IORING_SETUP_SQPOLL,
 };
 
 use syscall::{enter, setup};
 
 pub struct MyUring {
     uring: Box<Uring>,
-    params: Box<Params>,
 }
 
 impl Deref for MyUring {
@@ -40,11 +39,10 @@ impl std::ops::DerefMut for MyUring {
 
 impl MyUring {
     pub fn new(depth: usize) -> io::Result<MyUring> {
-        let mut params: Box<Params> =
-            Box::new(Params::default());
+        let mut params = Params::default();
 
         let ring_fd = unsafe {
-            setup(depth as _, params.deref_mut() as *mut _)
+            setup(depth as _, &mut params as *mut _)
         };
         if ring_fd < 0 {
             println!("src/io_uring/mod.rs:50");
@@ -248,14 +246,14 @@ impl MyUring {
         uring.flags = params.flags;
         uring.ring_fd = ring_fd;
 
-        Ok(MyUring { uring, params })
+        Ok(MyUring { uring })
     }
 
     pub fn get_sqe(&mut self) -> Option<&mut Sqe> {
         let next = self.sq.sqe_tail + 1;
         println!("next is {}", next);
 
-        if (self.params.flags & IORING_SETUP_SQPOLL) == 0 {
+        if (self.flags & IORING_SETUP_SQPOLL) == 0 {
             // non-polling mode
             let head = self.sq.sqe_head;
             println!("head is {:?}", head);
@@ -281,6 +279,26 @@ impl MyUring {
             // polling mode
             todo!()
         }
+    }
+
+    pub fn enqueue_fsync(&mut self, file: &File) -> bool {
+        let mut sqe = if let Some(sqe) = self.get_sqe() {
+            sqe
+        } else {
+            return false;
+        };
+        sqe.opcode = IORING_OP_FSYNC as u8;
+        sqe.fd = file.as_raw_fd();
+        sqe.addr = 0;
+        sqe.len = 0;
+        sqe.__bindgen_anon_1.off = 0;
+        sqe.flags = 0;
+        sqe.ioprio = 0;
+        sqe.__bindgen_anon_2.rw_flags = 0;
+        sqe.user_data = 0;
+        sqe.__bindgen_anon_3.__pad2 = [0; 3];
+
+        true
     }
 
     pub fn enqueue_write(
@@ -399,7 +417,8 @@ impl MyUring {
 
     /// Grabs a completed `Cqe` if it's available
     pub fn peek_cqe<'a>(&mut self) -> Option<&'a mut Cqe> {
-        let head = unsafe { *self.cq.khead };
+        let head =
+            unsafe { (*self.cq.khead).load(Acquire) };
         let tail =
             unsafe { (*self.cq.ktail).load(Acquire) };
 
@@ -431,10 +450,9 @@ impl MyUring {
         Ok(())
     }
 
-    pub fn seen(
-        &mut self,
-        _cqe: &mut Cqe,
-    ) -> io::Result<()> {
-        todo!()
+    pub fn seen(&mut self, _cqe: &mut Cqe) {
+        unsafe {
+            (*self.cq.khead).fetch_add(1, Release);
+        }
     }
 }

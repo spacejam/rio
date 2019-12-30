@@ -2057,7 +2057,7 @@ fn bindgen_test_layout_io_uring() {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct Sq {
-    pub khead: *mut libc::c_uint,
+    pub khead: *mut AtomicU32,
     pub ktail: *mut AtomicU32,
     pub kring_mask: *mut libc::c_uint,
     pub kring_entries: *mut libc::c_uint,
@@ -2242,7 +2242,7 @@ fn bindgen_test_layout_Sq() {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct Cq {
-    pub khead: *mut libc::c_uint,
+    pub khead: *mut AtomicU32,
     pub ktail: *mut AtomicU32,
     pub kring_mask: *mut libc::c_uint,
     pub kring_entries: *mut libc::c_uint,
