@@ -37,6 +37,23 @@ impl std::ops::DerefMut for MyUring {
     }
 }
 
+fn uring_mmap(
+    size: usize,
+    ring_fd: i32,
+    offset: i64,
+) -> *mut libc::c_void {
+    unsafe {
+        libc::mmap(
+            std::ptr::null_mut(),
+            size,
+            libc::PROT_READ | libc::PROT_WRITE,
+            libc::MAP_SHARED | libc::MAP_POPULATE,
+            ring_fd,
+            offset,
+        ) as _
+    }
+}
+
 impl MyUring {
     pub fn new(depth: usize) -> io::Result<MyUring> {
         let mut params = Params::default();
@@ -62,16 +79,11 @@ impl MyUring {
 
         // TODO IORING_FEAT_SINGLE_MMAP for sq
 
-        let sq_ring_ptr: *mut libc::c_void = unsafe {
-            libc::mmap(
-                std::ptr::null_mut(),
-                uring.sq.ring_sz,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_SHARED | libc::MAP_POPULATE,
-                ring_fd,
-                IORING_OFF_SQ_RING as libc::off_t,
-            ) as _
-        };
+        let sq_ring_ptr = uring_mmap(
+            uring.sq.ring_sz,
+            ring_fd,
+            IORING_OFF_SQ_RING as libc::off_t,
+        );
 
         if sq_ring_ptr.is_null()
             || sq_ring_ptr == libc::MAP_FAILED
@@ -84,16 +96,11 @@ impl MyUring {
 
         // TODO IORING_FEAT_SINGLE_MMAP for cq
 
-        let cq_ring_ptr: *mut libc::c_void = unsafe {
-            libc::mmap(
-                std::ptr::null_mut(),
-                uring.cq.ring_sz,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_SHARED | libc::MAP_POPULATE,
-                ring_fd,
-                IORING_OFF_CQ_RING as libc::off_t,
-            ) as _
-        };
+        let cq_ring_ptr = uring_mmap(
+            uring.cq.ring_sz,
+            ring_fd,
+            IORING_OFF_CQ_RING as libc::off_t,
+        );
 
         if cq_ring_ptr.is_null()
             || cq_ring_ptr == libc::MAP_FAILED
@@ -170,16 +177,11 @@ impl MyUring {
         let size: usize = params.sq_entries as usize
             * std::mem::size_of::<Sqe>();
 
-        let sqes_ptr: *mut Sqe = unsafe {
-            libc::mmap(
-                std::ptr::null_mut(),
-                size,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_SHARED | libc::MAP_POPULATE,
-                ring_fd,
-                IORING_OFF_SQES as libc::off_t,
-            ) as _
-        };
+        let sqes_ptr: *mut Sqe = uring_mmap(
+            size,
+            ring_fd,
+            IORING_OFF_SQES as libc::off_t,
+        ) as _;
 
         if sqes_ptr.is_null()
             || sqes_ptr == libc::MAP_FAILED as *mut Sqe
@@ -408,7 +410,13 @@ impl MyUring {
     ) -> io::Result<&'a mut Cqe> {
         loop {
             if let Some(cqe) = self.peek_cqe() {
-                return Ok(cqe);
+                return if cqe.res < 0 {
+                    Err(io::Error::from_raw_os_error(
+                        -1 * cqe.res,
+                    ))
+                } else {
+                    Ok(cqe)
+                };
             } else {
                 self.wait_for_cqe()?;
             }
