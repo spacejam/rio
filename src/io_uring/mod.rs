@@ -2,7 +2,6 @@ use std::{
     convert::TryFrom,
     fs::File,
     io::{self, IoSlice, IoSliceMut},
-    ops::Deref,
     os::unix::io::AsRawFd,
     sync::atomic::Ordering::{Acquire, Release},
 };
@@ -11,7 +10,7 @@ mod constants;
 mod syscall;
 mod types;
 
-pub(crate) use types::{Cqe, Params, Sqe, Uring};
+pub use types::{Cqe, Params, Sqe, Uring};
 
 pub(crate) use constants::{
     IORING_ENTER_GETEVENTS, IORING_OFF_CQ_RING,
@@ -20,24 +19,6 @@ pub(crate) use constants::{
 };
 
 use syscall::{enter, setup};
-
-pub struct MyUring {
-    uring: Box<Uring>,
-}
-
-impl Deref for MyUring {
-    type Target = Uring;
-
-    fn deref(&self) -> &Uring {
-        &self.uring
-    }
-}
-
-impl std::ops::DerefMut for MyUring {
-    fn deref_mut(&mut self) -> &mut Uring {
-        &mut self.uring
-    }
-}
 
 fn uring_mmap(
     size: usize,
@@ -56,8 +37,8 @@ fn uring_mmap(
     }
 }
 
-impl MyUring {
-    pub fn new(depth: usize) -> io::Result<MyUring> {
+impl Uring {
+    pub fn new(depth: usize) -> io::Result<Uring> {
         let mut params = Params::default();
 
         let ring_fd = unsafe {
@@ -68,8 +49,8 @@ impl MyUring {
             return Err(io::Error::last_os_error());
         }
 
-        let mut uring: Box<Uring> =
-            Box::new(unsafe { std::mem::zeroed() });
+        let mut uring: Uring =
+            unsafe { std::mem::zeroed() };
 
         uring.sq.ring_sz = params.sq_off.array as usize
             + (params.sq_entries as usize
@@ -250,7 +231,7 @@ impl MyUring {
         uring.flags = params.flags;
         uring.ring_fd = ring_fd;
 
-        Ok(MyUring { uring })
+        Ok(uring)
     }
 
     pub(crate) fn get_sqe(&mut self) -> Option<&mut Sqe> {
