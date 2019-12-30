@@ -37,6 +37,32 @@ fn uring_mmap(
     }
 }
 
+impl Sqe {
+    fn prep_rw(
+        &mut self,
+        op: u32,
+        file: &File,
+        addr: *mut libc::c_void,
+        len: usize,
+        at: u64,
+    ) {
+        *self = Sqe {
+            opcode: u8::try_from(op).unwrap(),
+            flags: 0,
+            ioprio: 0,
+            fd: file.as_raw_fd(),
+            addr: addr as u64,
+            len: u32::try_from(len).unwrap(),
+            user_data: 0,
+            ..*self
+        };
+        self.__bindgen_anon_1.off =
+            u64::try_from(at).unwrap();
+        self.__bindgen_anon_2.rw_flags = 0;
+        self.__bindgen_anon_3.__pad2 = [0; 3];
+    }
+}
+
 impl Uring {
     pub fn new(depth: usize) -> io::Result<Uring> {
         let mut params = Params::default();
@@ -234,6 +260,61 @@ impl Uring {
         Ok(uring)
     }
 
+    pub fn enqueue_fsync(&mut self, file: &File) -> bool {
+        if let Some(sqe) = self.get_sqe() {
+            sqe.prep_rw(
+                IORING_OP_FSYNC,
+                file,
+                std::ptr::null_mut(),
+                0,
+                0,
+            );
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn enqueue_write(
+        &mut self,
+        file: &File,
+        iov: IoSlice,
+        at: u64,
+    ) -> bool {
+        if let Some(sqe) = self.get_sqe() {
+            sqe.prep_rw(
+                IORING_OP_WRITEV,
+                file,
+                iov.as_ptr() as _,
+                1,
+                at,
+            );
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn enqueue_read(
+        &mut self,
+        file: &File,
+        iov: IoSliceMut,
+        at: u64,
+    ) -> bool {
+        if let Some(sqe) = self.get_sqe() {
+            sqe.prep_rw(
+                IORING_OP_READV,
+                file,
+                iov.as_ptr() as _,
+                1,
+                at,
+            );
+            true
+        } else {
+            false
+        }
+    }
+
     pub(crate) fn get_sqe(&mut self) -> Option<&mut Sqe> {
         let next = self.sq.sqe_tail + 1;
         println!("next is {}", next);
@@ -264,76 +345,6 @@ impl Uring {
             // polling mode
             todo!()
         }
-    }
-
-    pub fn enqueue_fsync(&mut self, file: &File) -> bool {
-        let mut sqe = if let Some(sqe) = self.get_sqe() {
-            sqe
-        } else {
-            return false;
-        };
-        sqe.opcode = IORING_OP_FSYNC as u8;
-        sqe.fd = file.as_raw_fd();
-        sqe.addr = 0;
-        sqe.len = 0;
-        sqe.__bindgen_anon_1.off = 0;
-        sqe.flags = 0;
-        sqe.ioprio = 0;
-        sqe.__bindgen_anon_2.rw_flags = 0;
-        sqe.user_data = 0;
-        sqe.__bindgen_anon_3.__pad2 = [0; 3];
-
-        true
-    }
-
-    pub fn enqueue_write(
-        &mut self,
-        file: &File,
-        iov: IoSlice,
-        at: usize,
-    ) -> bool {
-        let mut sqe = if let Some(sqe) = self.get_sqe() {
-            sqe
-        } else {
-            return false;
-        };
-        sqe.opcode = IORING_OP_WRITEV as u8;
-        sqe.fd = file.as_raw_fd();
-        sqe.addr = iov.as_ptr() as _;
-        sqe.len = iov.len() as _;
-        sqe.__bindgen_anon_1.off = at as _;
-        sqe.flags = 0;
-        sqe.ioprio = 0;
-        sqe.__bindgen_anon_2.rw_flags = 0;
-        sqe.user_data = 0;
-        sqe.__bindgen_anon_3.__pad2 = [0; 3];
-
-        true
-    }
-
-    pub fn enqueue_read(
-        &mut self,
-        file: &File,
-        iov: IoSliceMut,
-        at: usize,
-    ) -> bool {
-        let mut sqe = if let Some(sqe) = self.get_sqe() {
-            sqe
-        } else {
-            return false;
-        };
-        sqe.opcode = IORING_OP_READV as u8;
-        sqe.fd = file.as_raw_fd();
-        sqe.addr = iov.as_ptr() as _;
-        sqe.len = iov.len() as _;
-        sqe.__bindgen_anon_1.off = at as _;
-        sqe.flags = 0;
-        sqe.ioprio = 0;
-        sqe.__bindgen_anon_2.rw_flags = 0;
-        sqe.user_data = 0;
-        sqe.__bindgen_anon_3.__pad2 = [0; 3];
-
-        true
     }
 
     fn flush(&mut self) -> u32 {
