@@ -12,9 +12,7 @@ mod syscall;
 mod types;
 
 use kernel_types::{
-    io_cqring_offsets, io_sqring_offsets, io_uring_cqe,
-    io_uring_params, io_uring_sqe,
-    io_uring_sqe__bindgen_ty_1, io_uring_sqe__bindgen_ty_2,
+    io_uring_cqe, io_uring_params, io_uring_sqe,
 };
 
 use constants::*;

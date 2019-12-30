@@ -14,29 +14,29 @@ pub struct Uring {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct Sq {
-    pub khead: *mut AtomicU32,
-    pub ktail: *mut AtomicU32,
-    pub kring_mask: *mut libc::c_uint,
-    pub kring_entries: *mut libc::c_uint,
-    pub kflags: *mut libc::c_uint,
-    pub kdropped: *mut libc::c_uint,
+    pub khead: *const AtomicU32,
+    pub ktail: *const AtomicU32,
+    pub kring_mask: *const libc::c_uint,
+    pub kring_entries: *const libc::c_uint,
+    pub kflags: *const libc::c_uint,
+    pub kdropped: *const libc::c_uint,
     pub array: *mut libc::c_uint,
     pub sqes: *mut io_uring_sqe,
     pub sqe_head: libc::c_uint,
     pub sqe_tail: libc::c_uint,
     pub ring_sz: usize,
-    pub ring_ptr: *mut libc::c_void,
+    pub ring_ptr: *const libc::c_void,
 }
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct Cq {
-    pub khead: *mut AtomicU32,
-    pub ktail: *mut AtomicU32,
-    pub kring_mask: *mut libc::c_uint,
-    pub kring_entries: *mut libc::c_uint,
-    pub koverflow: *mut libc::c_uint,
+    pub khead: *const AtomicU32,
+    pub ktail: *const AtomicU32,
+    pub kring_mask: *const libc::c_uint,
+    pub kring_entries: *const libc::c_uint,
+    pub koverflow: *const AtomicU32,
     pub cqes: *mut io_uring_cqe,
     pub ring_sz: usize,
-    pub ring_ptr: *mut libc::c_void,
+    pub ring_ptr: *const libc::c_void,
 }
