@@ -8,7 +8,7 @@ const SETUP: libc::c_long = 425;
 const ENTER: libc::c_long = 426;
 const REGISTER: libc::c_long = 427;
 
-pub unsafe fn setup(
+pub(crate) unsafe fn setup(
     entries: c_uint,
     p: *mut Params,
 ) -> c_int {
@@ -24,7 +24,7 @@ pub unsafe fn setup(
     syscall(SETUP, entries as c_long, p as c_long) as c_int
 }
 
-pub unsafe fn enter(
+pub(crate) unsafe fn enter(
     fd: c_int,
     to_submit: c_uint,
     min_complete: c_uint,
@@ -42,7 +42,7 @@ pub unsafe fn enter(
     ) as c_int
 }
 
-pub unsafe fn register(
+pub(crate) unsafe fn register(
     fd: c_int,
     opcode: c_uint,
     arg: *const libc::c_void,

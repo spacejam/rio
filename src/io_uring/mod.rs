@@ -7,11 +7,13 @@ use std::{
     sync::atomic::Ordering::{Acquire, Release},
 };
 
-mod io_uring;
+mod constants;
 mod syscall;
+mod types;
 
-pub use io_uring::{
-    Cqe, CqringOffsets, Params, Sqe, SqringOffsets, Uring,
+pub(crate) use types::{Cqe, Params, Sqe, Uring};
+
+pub(crate) use constants::{
     IORING_ENTER_GETEVENTS, IORING_OFF_CQ_RING,
     IORING_OFF_SQES, IORING_OFF_SQ_RING, IORING_OP_FSYNC,
     IORING_OP_READV, IORING_OP_WRITEV, IORING_SETUP_SQPOLL,
@@ -251,7 +253,7 @@ impl MyUring {
         Ok(MyUring { uring })
     }
 
-    pub fn get_sqe(&mut self) -> Option<&mut Sqe> {
+    pub(crate) fn get_sqe(&mut self) -> Option<&mut Sqe> {
         let next = self.sq.sqe_tail + 1;
         println!("next is {}", next);
 
@@ -424,7 +426,9 @@ impl MyUring {
     }
 
     /// Grabs a completed `Cqe` if it's available
-    pub fn peek_cqe<'a>(&mut self) -> Option<&'a mut Cqe> {
+    pub(crate) fn peek_cqe<'a>(
+        &mut self,
+    ) -> Option<&'a mut Cqe> {
         let head =
             unsafe { (*self.cq.khead).load(Acquire) };
         let tail =
