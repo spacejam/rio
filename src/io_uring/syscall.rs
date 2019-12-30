@@ -2,7 +2,7 @@
 
 use libc::{c_int, c_long, c_uint, syscall};
 
-use super::Params;
+use super::io_uring_params;
 
 const SETUP: libc::c_long = 425;
 const ENTER: libc::c_long = 426;
@@ -10,7 +10,7 @@ const REGISTER: libc::c_long = 427;
 
 pub(crate) unsafe fn setup(
     entries: c_uint,
-    p: *mut Params,
+    p: *mut io_uring_params,
 ) -> c_int {
     assert_eq!(
         entries.count_ones(),

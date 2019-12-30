@@ -7,16 +7,18 @@ use std::{
 };
 
 mod constants;
+mod kernel_types;
 mod syscall;
 mod types;
 
-pub use types::{Cqe, Params, Sqe, Uring};
-
-pub(crate) use constants::{
-    IORING_ENTER_GETEVENTS, IORING_OFF_CQ_RING,
-    IORING_OFF_SQES, IORING_OFF_SQ_RING, IORING_OP_FSYNC,
-    IORING_OP_READV, IORING_OP_WRITEV, IORING_SETUP_SQPOLL,
+use kernel_types::{
+    io_cqring_offsets, io_sqring_offsets, io_uring_cqe,
+    io_uring_params, io_uring_sqe,
+    io_uring_sqe__bindgen_ty_1, io_uring_sqe__bindgen_ty_2,
 };
+
+use constants::*;
+pub use types::{Cq, Sq, Uring};
 
 use syscall::{enter, setup};
 
@@ -37,7 +39,7 @@ fn uring_mmap(
     }
 }
 
-impl Sqe {
+impl io_uring_sqe {
     fn prep_rw(
         &mut self,
         op: u32,
@@ -46,7 +48,7 @@ impl Sqe {
         len: usize,
         at: u64,
     ) {
-        *self = Sqe {
+        *self = io_uring_sqe {
             opcode: u8::try_from(op).unwrap(),
             flags: 0,
             ioprio: 0,
@@ -54,18 +56,17 @@ impl Sqe {
             addr: addr as u64,
             len: u32::try_from(len).unwrap(),
             user_data: 0,
+            off: u64::try_from(at).unwrap(),
             ..*self
         };
-        self.__bindgen_anon_1.off =
-            u64::try_from(at).unwrap();
-        self.__bindgen_anon_2.rw_flags = 0;
-        self.__bindgen_anon_3.__pad2 = [0; 3];
+        self.__bindgen_anon_1.rw_flags = 0;
+        self.__bindgen_anon_2.__pad2 = [0; 3];
     }
 }
 
 impl Uring {
     pub fn new(depth: usize) -> io::Result<Uring> {
-        let mut params = Params::default();
+        let mut params = io_uring_params::default();
 
         let ring_fd = unsafe {
             setup(depth as _, &mut params as *mut _)
@@ -184,16 +185,17 @@ impl Uring {
 
         // size = p->sq_entries * sizeof(struct io_uring_sqe);
         let size: usize = params.sq_entries as usize
-            * std::mem::size_of::<Sqe>();
+            * std::mem::size_of::<io_uring_sqe>();
 
-        let sqes_ptr: *mut Sqe = uring_mmap(
+        let sqes_ptr: *mut io_uring_sqe = uring_mmap(
             size,
             ring_fd,
             IORING_OFF_SQES as libc::off_t,
         ) as _;
 
         if sqes_ptr.is_null()
-            || sqes_ptr == libc::MAP_FAILED as *mut Sqe
+            || sqes_ptr
+                == libc::MAP_FAILED as *mut io_uring_sqe
         {
             println!("src/io_uring/mod.rs:189");
             return Err(io::Error::last_os_error());
@@ -315,7 +317,9 @@ impl Uring {
         }
     }
 
-    pub(crate) fn get_sqe(&mut self) -> Option<&mut Sqe> {
+    pub(crate) fn get_sqe(
+        &mut self,
+    ) -> Option<&mut io_uring_sqe> {
         let next = self.sq.sqe_tail + 1;
         println!("next is {}", next);
 
@@ -401,7 +405,7 @@ impl Uring {
 
     pub fn wait_cqe<'a>(
         &mut self,
-    ) -> io::Result<&'a mut Cqe> {
+    ) -> io::Result<&'a mut io_uring_cqe> {
         loop {
             if let Some(cqe) = self.peek_cqe() {
                 return if cqe.res < 0 {
@@ -417,10 +421,10 @@ impl Uring {
         }
     }
 
-    /// Grabs a completed `Cqe` if it's available
+    /// Grabs a completed `io_uring_cqe` if it's available
     pub(crate) fn peek_cqe<'a>(
         &mut self,
-    ) -> Option<&'a mut Cqe> {
+    ) -> Option<&'a mut io_uring_cqe> {
         let head =
             unsafe { (*self.cq.khead).load(Acquire) };
         let tail =
@@ -454,7 +458,7 @@ impl Uring {
         Ok(())
     }
 
-    pub fn seen(&mut self, _cqe: &mut Cqe) {
+    pub fn seen(&mut self, _cqe: &mut io_uring_cqe) {
         unsafe {
             (*self.cq.khead).fetch_add(1, Release);
         }
