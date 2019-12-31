@@ -3,6 +3,7 @@ use std::{
     fs::File,
     io::{self, IoSlice, IoSliceMut},
     os::unix::io::AsRawFd,
+    slice::from_raw_parts_mut,
     sync::atomic::Ordering::{Acquire, Release},
 };
 
@@ -24,7 +25,7 @@ use std::sync::atomic::AtomicU32;
 /// Sounds kinda like urine [0].
 ///
 /// 0. https://lwn.net/ml/linux-fsdevel/20190109160036.GK6310@bombadil.infradead.org/
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug)]
 pub struct Uring {
     pub sq: Sq,
     pub cq: Cq,
@@ -33,33 +34,99 @@ pub struct Uring {
 }
 
 /// Sprays uring submissions.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug)]
 pub struct Sq {
-    pub khead: &'static AtomicU32,
-    pub ktail: &'static AtomicU32,
-    pub kring_mask: u32,
-    pub kring_entries: *const libc::c_uint,
-    pub kflags: *const libc::c_uint,
-    pub kdropped: *const libc::c_uint,
-    pub array: *mut libc::c_uint,
-    pub sqes: *mut io_uring_sqe,
-    pub sqe_head: libc::c_uint,
-    pub sqe_tail: libc::c_uint,
-    pub ring_sz: usize,
-    pub ring_ptr: *const libc::c_void,
+    khead: &'static AtomicU32,
+    ktail: &'static AtomicU32,
+    kring_mask: u32,
+    kring_entries: *const libc::c_uint,
+    kflags: *const libc::c_uint,
+    kdropped: *const libc::c_uint,
+    array: *mut libc::c_uint,
+    sqes: &'static mut [io_uring_sqe],
+    sqe_head: libc::c_uint,
+    sqe_tail: libc::c_uint,
+    ring_ptr: *const libc::c_void,
+    ring_sz: usize,
+}
+
+impl Drop for Sq {
+    fn drop(&mut self) {
+        unsafe {
+            libc::munmap(
+                self.ring_ptr as *mut libc::c_void,
+                self.ring_sz,
+            );
+        }
+    }
 }
 
 /// Consumes uring completions.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug)]
 pub struct Cq {
     pub khead: &'static AtomicU32,
     pub ktail: &'static AtomicU32,
     pub kring_mask: u32,
     pub kring_entries: *const libc::c_uint,
     pub koverflow: *const AtomicU32,
-    pub cqes: *mut io_uring_cqe,
-    pub ring_sz: usize,
+    pub cqes: &'static mut [io_uring_cqe],
     pub ring_ptr: *const libc::c_void,
+    pub ring_sz: usize,
+}
+
+impl Drop for Cq {
+    fn drop(&mut self) {
+        unsafe {
+            libc::munmap(
+                self.ring_ptr as *mut libc::c_void,
+                self.ring_sz,
+            );
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Cqe<'a> {
+    cqe: &'a io_uring_cqe,
+    uring: &'a Uring,
+    seen: bool,
+}
+
+impl<'a> std::ops::Deref for Cqe<'a> {
+    type Target = io_uring_cqe;
+
+    fn deref(&self) -> &io_uring_cqe {
+        &self.cqe
+    }
+}
+
+impl<'a> Cqe<'a> {
+    pub fn status(&self) -> io::Result<()> {
+        if self.cqe.res < 0 {
+            Err(io::Error::from_raw_os_error(
+                -1 * self.cqe.res,
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn seen(mut self) {
+        self.seen_inner();
+    }
+
+    fn seen_inner(&mut self) {
+        if !self.seen {
+            self.seen = true;
+            self.uring.cq.khead.fetch_add(1, Release);
+        }
+    }
+}
+
+impl<'a> Drop for Cqe<'a> {
+    fn drop(&mut self) {
+        self.seen_inner();
+    }
 }
 
 fn uring_mmap(
@@ -156,9 +223,12 @@ impl Uring {
             Sq {
                 sqe_head: 0,
                 sqe_tail: 0,
-                ring_sz: sq_ring_sz,
                 ring_ptr: sq_ring_ptr,
-                sqes: sqes_ptr,
+                ring_sz: sq_ring_sz,
+                sqes: from_raw_parts_mut(
+                    sqes_ptr,
+                    params.sq_entries as usize,
+                ),
                 khead: &*(sq_ring_ptr
                     .add(params.sq_off.head as usize)
                     as *const AtomicU32),
@@ -202,8 +272,8 @@ impl Uring {
 
         let cq = unsafe {
             Cq {
-                ring_sz: cq_ring_sz,
                 ring_ptr: cq_ring_ptr,
+                ring_sz: cq_ring_sz,
                 khead: &*(cq_ring_ptr
                     .add(params.cq_off.head as usize)
                     as *const AtomicU32),
@@ -219,9 +289,12 @@ impl Uring {
                 koverflow: cq_ring_ptr
                     .add(params.cq_off.overflow as usize)
                     as _,
-                cqes: cq_ring_ptr
-                    .add(params.cq_off.cqes as usize)
-                    as _,
+                cqes: from_raw_parts_mut(
+                    cq_ring_ptr
+                        .add(params.cq_off.cqes as usize)
+                        as _,
+                    params.cq_off.cqes as usize,
+                ),
             }
         };
 
@@ -306,11 +379,9 @@ impl Uring {
             {
                 let idx =
                     self.sq.sqe_tail & self.sq.kring_mask;
-                let ret = unsafe {
-                    self.sq.sqes.add(idx as usize)
-                };
+                let ret = &mut self.sq.sqes[idx as usize];
                 self.sq.sqe_tail = next;
-                unsafe { Some(&mut *ret) }
+                Some(ret)
             } else {
                 println!("src/io_uring/mod.rs:88");
                 None
@@ -369,44 +440,45 @@ impl Uring {
         Ok(())
     }
 
-    pub fn wait_cqe<'a>(
-        &mut self,
-    ) -> io::Result<&'a mut io_uring_cqe> {
+    pub fn wait_cqe(&self) -> io::Result<Cqe> {
         loop {
-            if let Some(cqe) = self.peek_cqe() {
+            if let Some(index) = self.peek_cqe() {
+                let cqe = &self.cq.cqes[index as usize];
                 dbg!(&cqe);
                 return if cqe.res < 0 {
                     Err(io::Error::from_raw_os_error(
                         -1 * cqe.res,
                     ))
                 } else {
-                    Ok(cqe)
+                    Ok(Cqe {
+                        cqe,
+                        uring: self,
+                        seen: false,
+                    })
                 };
-            } else {
-                self.wait_for_cqe()?;
             }
+            self.block_for_cqe()?;
         }
     }
 
     /// Grabs a completed `io_uring_cqe` if it's available
-    pub(crate) fn peek_cqe<'a>(
-        &mut self,
-    ) -> Option<&'a mut io_uring_cqe> {
+    pub(crate) fn peek_cqe(&self) -> Option<usize> {
         let head = self.cq.khead.load(Acquire);
         let tail = self.cq.ktail.load(Acquire);
 
         if head != tail {
             let index = head & self.cq.kring_mask;
-            let cqe = unsafe {
-                &mut *self.cq.cqes.add(index as usize)
-            };
-            Some(cqe)
+            println!(
+                "got completion queue event at index {}",
+                index
+            );
+            Some(index as usize)
         } else {
             None
         }
     }
 
-    fn wait_for_cqe(&mut self) -> io::Result<()> {
+    fn block_for_cqe(&self) -> io::Result<()> {
         let flags = IORING_ENTER_GETEVENTS;
         let submit = 0;
         let wait = 1;
@@ -420,9 +492,5 @@ impl Uring {
         }
 
         Ok(())
-    }
-
-    pub fn seen(&mut self, _cqe: &mut io_uring_cqe) {
-        self.cq.khead.fetch_add(1, Release);
     }
 }
