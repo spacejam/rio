@@ -182,9 +182,9 @@ impl Uring {
     pub fn new(depth: usize) -> io::Result<Uring> {
         let mut params = io_uring_params::default();
 
-        let ring_fd = unsafe {
-            setup(depth as _, &mut params as *mut _)
-        };
+        let ring_fd =
+            setup(depth as _, &mut params as *mut _)?;
+
         if ring_fd < 0 {
             return Err(io::Error::last_os_error());
         }
@@ -431,18 +431,13 @@ impl Uring {
         let flags = IORING_ENTER_GETEVENTS;
         let mut submitted = self.flush();
         while submitted > 0 {
-            let ret = unsafe {
-                enter(
-                    self.ring_fd,
-                    submitted,
-                    0,
-                    flags,
-                    std::ptr::null_mut(),
-                )
-            };
-            if ret < 0 {
-                return Err(io::Error::last_os_error());
-            }
+            let ret = enter(
+                self.ring_fd,
+                submitted,
+                0,
+                flags,
+                std::ptr::null_mut(),
+            )?;
             submitted -= u32::try_from(ret).unwrap();
         }
         Ok(())
@@ -492,12 +487,7 @@ impl Uring {
         let wait = 1;
         let sigset = std::ptr::null_mut();
 
-        let ret = unsafe {
-            enter(self.ring_fd, submit, wait, flags, sigset)
-        };
-        if ret < 0 {
-            return Err(io::Error::last_os_error());
-        }
+        enter(self.ring_fd, submit, wait, flags, sigset)?;
 
         Ok(())
     }
