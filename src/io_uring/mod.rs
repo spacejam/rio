@@ -48,10 +48,17 @@ pub struct Sq {
     sqe_tail: libc::c_uint,
     ring_ptr: *const libc::c_void,
     ring_sz: usize,
+    sqes_sz: usize,
 }
 
 impl Drop for Sq {
     fn drop(&mut self) {
+        unsafe {
+            libc::munmap(
+                self.sqes.as_ptr() as *mut libc::c_void,
+                self.sqes_sz,
+            );
+        }
         unsafe {
             libc::munmap(
                 self.ring_ptr as *mut libc::c_void,
@@ -201,11 +208,11 @@ impl Uring {
         }
 
         // size = p->sq_entries * sizeof(struct io_uring_sqe);
-        let size: usize = params.sq_entries as usize
+        let sqes_sz: usize = params.sq_entries as usize
             * std::mem::size_of::<io_uring_sqe>();
 
         let sqes_ptr: *mut io_uring_sqe = uring_mmap(
-            size,
+            sqes_sz,
             ring_fd,
             IORING_OFF_SQES as libc::off_t,
         ) as _;
@@ -225,6 +232,7 @@ impl Uring {
                 sqe_tail: 0,
                 ring_ptr: sq_ring_ptr,
                 ring_sz: sq_ring_sz,
+                sqes_sz: sqes_sz,
                 sqes: from_raw_parts_mut(
                     sqes_ptr,
                     params.sq_entries as usize,
