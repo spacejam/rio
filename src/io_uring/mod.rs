@@ -35,8 +35,8 @@ pub struct Uring {
 /// Sprays uring submissions.
 #[derive(Debug, Copy, Clone)]
 pub struct Sq {
-    pub khead: *const AtomicU32,
-    pub ktail: *const AtomicU32,
+    pub khead: &'static AtomicU32,
+    pub ktail: &'static AtomicU32,
     pub kring_mask: u32,
     pub kring_entries: *const libc::c_uint,
     pub kflags: *const libc::c_uint,
@@ -52,8 +52,8 @@ pub struct Sq {
 /// Consumes uring completions.
 #[derive(Debug, Copy, Clone)]
 pub struct Cq {
-    pub khead: *const AtomicU32,
-    pub ktail: *const AtomicU32,
+    pub khead: &'static AtomicU32,
+    pub ktail: &'static AtomicU32,
     pub kring_mask: u32,
     pub kring_entries: *const libc::c_uint,
     pub koverflow: *const AtomicU32,
@@ -159,12 +159,12 @@ impl Uring {
                 ring_sz: sq_ring_sz,
                 ring_ptr: sq_ring_ptr,
                 sqes: sqes_ptr,
-                khead: sq_ring_ptr
+                khead: &*(sq_ring_ptr
                     .add(params.sq_off.head as usize)
-                    as _,
-                ktail: sq_ring_ptr
+                    as *const AtomicU32),
+                ktail: &*(sq_ring_ptr
                     .add(params.sq_off.tail as usize)
-                    as _,
+                    as *const AtomicU32),
                 kring_mask: *(sq_ring_ptr
                     .add(params.sq_off.ring_mask as usize)
                     as *mut u32),
@@ -204,12 +204,12 @@ impl Uring {
             Cq {
                 ring_sz: cq_ring_sz,
                 ring_ptr: cq_ring_ptr,
-                khead: cq_ring_ptr
+                khead: &*(cq_ring_ptr
                     .add(params.cq_off.head as usize)
-                    as _,
-                ktail: cq_ring_ptr
+                    as *const AtomicU32),
+                ktail: &*(cq_ring_ptr
                     .add(params.cq_off.tail as usize)
-                    as _,
+                    as *const AtomicU32),
                 kring_mask: *(cq_ring_ptr
                     .add(params.cq_off.ring_mask as usize)
                     as *mut u32),
@@ -327,8 +327,7 @@ impl Uring {
             return 0;
         }
 
-        let mut ktail =
-            unsafe { (*self.sq.ktail).load(Acquire) };
+        let mut ktail = self.sq.ktail.load(Acquire);
         let to_submit = self.sq.sqe_tail - self.sq.sqe_head;
         for _ in 0..to_submit {
             let index = ktail & mask;
@@ -340,9 +339,7 @@ impl Uring {
             self.sq.sqe_head += 1;
         }
 
-        let swapped = unsafe {
-            (*self.sq.ktail).swap(ktail, Release)
-        };
+        let swapped = self.sq.ktail.swap(ktail, Release);
 
         assert_eq!(swapped, ktail - to_submit);
 
@@ -395,10 +392,8 @@ impl Uring {
     pub(crate) fn peek_cqe<'a>(
         &mut self,
     ) -> Option<&'a mut io_uring_cqe> {
-        let head =
-            unsafe { (*self.cq.khead).load(Acquire) };
-        let tail =
-            unsafe { (*self.cq.ktail).load(Acquire) };
+        let head = self.cq.khead.load(Acquire);
+        let tail = self.cq.ktail.load(Acquire);
 
         if head != tail {
             let index = head & self.cq.kring_mask;
@@ -428,8 +423,6 @@ impl Uring {
     }
 
     pub fn seen(&mut self, _cqe: &mut io_uring_cqe) {
-        unsafe {
-            (*self.cq.khead).fetch_add(1, Release);
-        }
+        self.cq.khead.fetch_add(1, Release);
     }
 }
