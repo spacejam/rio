@@ -334,14 +334,14 @@ impl Uring {
     pub fn enqueue_write(
         &mut self,
         file: &File,
-        iov: IoSlice,
+        iov: &IoSlice,
         at: u64,
     ) -> bool {
         if let Some(sqe) = self.get_sqe() {
             sqe.prep_rw(
                 IORING_OP_WRITEV,
                 file,
-                iov.as_ptr() as _,
+                iov as *const _ as _,
                 1,
                 at,
             );
@@ -354,14 +354,14 @@ impl Uring {
     pub fn enqueue_read(
         &mut self,
         file: &File,
-        iov: IoSliceMut,
+        iov: &mut IoSliceMut,
         at: u64,
     ) -> bool {
         if let Some(sqe) = self.get_sqe() {
             sqe.prep_rw(
                 IORING_OP_READV,
                 file,
-                iov.as_ptr() as _,
+                iov as *mut _ as _,
                 1,
                 at,
             );
