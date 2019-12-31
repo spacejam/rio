@@ -21,10 +21,7 @@ use syscall::{enter, setup};
 
 use std::sync::atomic::AtomicU32;
 
-/// A good kernel IO interface.
-/// Sounds kinda like urine [0].
-///
-/// 0. https://lwn.net/ml/linux-fsdevel/20190109160036.GK6310@bombadil.infradead.org/
+/// Nice bindings for the shiny new linux IO system
 #[derive(Debug)]
 pub struct Uring {
     pub sq: Sq,
