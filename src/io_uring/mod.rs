@@ -24,10 +24,10 @@ use std::sync::atomic::AtomicU32;
 /// Nice bindings for the shiny new linux IO system
 #[derive(Debug)]
 pub struct Uring {
-    pub sq: Sq,
-    pub cq: Cq,
-    pub flags: libc::c_uint,
-    pub ring_fd: libc::c_int,
+    sq: Sq,
+    cq: Cq,
+    flags: u32,
+    ring_fd: i32,
 }
 
 /// Sprays uring submissions.
@@ -221,8 +221,6 @@ impl Uring {
             return Err(io::Error::last_os_error());
         }
 
-        dbg!(&params);
-
         let sq = unsafe {
             Sq {
                 sqe_head: 0,
@@ -313,6 +311,16 @@ impl Uring {
         })
     }
 
+    /// Sync the file. This does not work with O_DIRECT.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// ring.enqueue_fsync(&file);
+    /// ring.submit_all().expect("submit");
+    /// let cqe = ring.wait_cqe().unwrap();
+    /// cqe.seen();
+    /// ```
     pub fn enqueue_fsync(&mut self, file: &File) -> bool {
         if let Some(sqe) = self.get_sqe() {
             sqe.prep_rw(
@@ -372,16 +380,10 @@ impl Uring {
         &mut self,
     ) -> Option<&mut io_uring_sqe> {
         let next = self.sq.sqe_tail + 1;
-        println!("next is {}", next);
 
         if (self.flags & IORING_SETUP_SQPOLL) == 0 {
             // non-polling mode
             let head = self.sq.sqe_head;
-            println!("head is {:?}", head);
-            println!(
-                "kring_entries is {:?}",
-                self.sq.kring_entries
-            );
             if next - head <= self.sq.kring_entries {
                 let idx =
                     self.sq.sqe_tail & self.sq.kring_mask;
@@ -389,7 +391,6 @@ impl Uring {
                 self.sq.sqe_tail = next;
                 Some(ret)
             } else {
-                println!("src/io_uring/mod.rs:88");
                 None
             }
         } else {
@@ -445,7 +446,6 @@ impl Uring {
         loop {
             if let Some(index) = self.peek_cqe() {
                 let cqe = &self.cq.cqes[index as usize];
-                dbg!(&cqe);
                 return if cqe.res < 0 {
                     Err(io::Error::from_raw_os_error(
                         -1 * cqe.res,
@@ -469,10 +469,6 @@ impl Uring {
 
         if head != tail {
             let index = head & self.cq.kring_mask;
-            println!(
-                "got completion queue event at index {}",
-                index
-            );
             Some(index as usize)
         } else {
             None
