@@ -37,7 +37,7 @@ pub struct Uring {
 pub struct Sq {
     pub khead: *const AtomicU32,
     pub ktail: *const AtomicU32,
-    pub kring_mask: *const libc::c_uint,
+    pub kring_mask: u32,
     pub kring_entries: *const libc::c_uint,
     pub kflags: *const libc::c_uint,
     pub kdropped: *const libc::c_uint,
@@ -54,7 +54,7 @@ pub struct Sq {
 pub struct Cq {
     pub khead: *const AtomicU32,
     pub ktail: *const AtomicU32,
-    pub kring_mask: *const libc::c_uint,
+    pub kring_mask: u32,
     pub kring_entries: *const libc::c_uint,
     pub koverflow: *const AtomicU32,
     pub cqes: *mut io_uring_cqe,
@@ -112,7 +112,6 @@ impl Uring {
             setup(depth as _, &mut params as *mut _)
         };
         if ring_fd < 0 {
-            println!("src/io_uring/mod.rs:50");
             return Err(io::Error::last_os_error());
         }
 
@@ -131,7 +130,6 @@ impl Uring {
         if sq_ring_ptr.is_null()
             || sq_ring_ptr == libc::MAP_FAILED
         {
-            println!("src/io_uring/mod.rs:80");
             return Err(io::Error::last_os_error());
         }
 
@@ -149,9 +147,10 @@ impl Uring {
             || sqes_ptr
                 == libc::MAP_FAILED as *mut io_uring_sqe
         {
-            println!("src/io_uring/mod.rs:189");
             return Err(io::Error::last_os_error());
         }
+
+        dbg!(&params);
 
         let sq = unsafe {
             Sq {
@@ -160,31 +159,24 @@ impl Uring {
                 ring_sz: sq_ring_sz,
                 ring_ptr: sq_ring_ptr,
                 sqes: sqes_ptr,
-                // sq->khead = sq->ring_ptr + p->sq_off.head;
                 khead: sq_ring_ptr
                     .add(params.sq_off.head as usize)
                     as _,
-                // sq->ktail = sq->ring_ptr + p->sq_off.tail;
                 ktail: sq_ring_ptr
                     .add(params.sq_off.tail as usize)
                     as _,
-                // sq->kring_mask = sq->ring_ptr + p->sq_off.ring_mask;
-                kring_mask: sq_ring_ptr
+                kring_mask: *(sq_ring_ptr
                     .add(params.sq_off.ring_mask as usize)
-                    as _,
-                // sq->kring_entries = sq->ring_ptr + p->sq_off.ring_entries;
+                    as *mut u32),
                 kring_entries: sq_ring_ptr.add(
                     params.sq_off.ring_entries as usize,
                 ) as _,
-                // sq->kflags = sq->ring_ptr + p->sq_off.flags;
                 kflags: sq_ring_ptr
                     .add(params.sq_off.flags as usize)
                     as _,
-                // sq->kdropped = sq->ring_ptr + p->sq_off.dropped;
                 kdropped: sq_ring_ptr
                     .add(params.sq_off.dropped as usize)
                     as _,
-                // sq->array = sq->ring_ptr + p->sq_off.array;
                 array: sq_ring_ptr
                     .add(params.sq_off.array as usize)
                     as _,
@@ -205,7 +197,6 @@ impl Uring {
         if cq_ring_ptr.is_null()
             || cq_ring_ptr == libc::MAP_FAILED
         {
-            println!("src/io_uring/mod.rs:102");
             return Err(io::Error::last_os_error());
         }
 
@@ -213,32 +204,21 @@ impl Uring {
             Cq {
                 ring_sz: cq_ring_sz,
                 ring_ptr: cq_ring_ptr,
-                // cq->khead = cq->ring_ptr + p->cq_off.head;
                 khead: cq_ring_ptr
                     .add(params.cq_off.head as usize)
                     as _,
-
-                // cq->ktail = cq->ring_ptr + p->cq_off.tail;
                 ktail: cq_ring_ptr
                     .add(params.cq_off.tail as usize)
                     as _,
-
-                // cq->kring_mask = cq->ring_ptr + p->cq_off.ring_mask;
-                kring_mask: cq_ring_ptr
+                kring_mask: *(cq_ring_ptr
                     .add(params.cq_off.ring_mask as usize)
-                    as _,
-
-                // cq->kring_entries = cq->ring_ptr + p->cq_off.ring_entries;
+                    as *mut u32),
                 kring_entries: cq_ring_ptr.add(
                     params.cq_off.ring_entries as usize,
                 ) as _,
-
-                // cq->koverflow = cq->ring_ptr + p->cq_off.overflow;
                 koverflow: cq_ring_ptr
                     .add(params.cq_off.overflow as usize)
                     as _,
-
-                // cq->cqes = cq->ring_ptr + p->cq_off.cqes;
                 cqes: cq_ring_ptr
                     .add(params.cq_off.cqes as usize)
                     as _,
@@ -318,15 +298,14 @@ impl Uring {
             // non-polling mode
             let head = self.sq.sqe_head;
             println!("head is {:?}", head);
-            println!(
-                "kring_entries is {:?}",
-                self.sq.kring_entries
-            );
+            println!("kring_entries is {:?}", unsafe {
+                *self.sq.kring_entries
+            });
             if next - head
                 <= unsafe { *self.sq.kring_entries }
             {
-                let idx = self.sq.sqe_tail
-                    & unsafe { *self.sq.kring_mask };
+                let idx =
+                    self.sq.sqe_tail & self.sq.kring_mask;
                 let ret = unsafe {
                     self.sq.sqes.add(idx as usize)
                 };
@@ -343,7 +322,7 @@ impl Uring {
     }
 
     fn flush(&mut self) -> u32 {
-        let mask: u32 = unsafe { *self.sq.kring_mask };
+        let mask: u32 = self.sq.kring_mask;
         if self.sq.sqe_head == self.sq.sqe_tail {
             return 0;
         }
@@ -386,7 +365,6 @@ impl Uring {
                 )
             };
             if ret < 0 {
-                println!("enter call not supported");
                 return Err(io::Error::last_os_error());
             }
             submitted -= u32::try_from(ret).unwrap();
@@ -399,6 +377,7 @@ impl Uring {
     ) -> io::Result<&'a mut io_uring_cqe> {
         loop {
             if let Some(cqe) = self.peek_cqe() {
+                dbg!(&cqe);
                 return if cqe.res < 0 {
                     Err(io::Error::from_raw_os_error(
                         -1 * cqe.res,
@@ -422,8 +401,7 @@ impl Uring {
             unsafe { (*self.cq.ktail).load(Acquire) };
 
         if head != tail {
-            let index =
-                head & unsafe { *self.cq.kring_mask };
+            let index = head & self.cq.kring_mask;
             let cqe = unsafe {
                 &mut *self.cq.cqes.add(index as usize)
             };
