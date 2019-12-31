@@ -116,21 +116,14 @@ impl Uring {
             return Err(io::Error::last_os_error());
         }
 
-        let mut uring: Uring =
-            unsafe { std::mem::zeroed() };
-
-        uring.sq.ring_sz = params.sq_off.array as usize
+        let sq_ring_sz = params.sq_off.array as usize
             + (params.sq_entries as usize
-                * std::mem::size_of::<u32>());
-
-        uring.cq.ring_sz = params.cq_off.cqes as usize
-            + (params.cq_entries as usize
                 * std::mem::size_of::<u32>());
 
         // TODO IORING_FEAT_SINGLE_MMAP for sq
 
         let sq_ring_ptr = uring_mmap(
-            uring.sq.ring_sz,
+            sq_ring_sz,
             ring_fd,
             IORING_OFF_SQ_RING as libc::off_t,
         );
@@ -141,87 +134,6 @@ impl Uring {
             println!("src/io_uring/mod.rs:80");
             return Err(io::Error::last_os_error());
         }
-
-        uring.sq.ring_ptr = sq_ring_ptr;
-
-        // TODO IORING_FEAT_SINGLE_MMAP for cq
-
-        let cq_ring_ptr = uring_mmap(
-            uring.cq.ring_sz,
-            ring_fd,
-            IORING_OFF_CQ_RING as libc::off_t,
-        );
-
-        if cq_ring_ptr.is_null()
-            || cq_ring_ptr == libc::MAP_FAILED
-        {
-            println!("src/io_uring/mod.rs:102");
-            return Err(io::Error::last_os_error());
-        }
-
-        uring.cq.ring_ptr = cq_ring_ptr;
-
-        // sq->khead = sq->ring_ptr + p->sq_off.head;
-        uring.sq.khead = unsafe {
-            uring
-                .sq
-                .ring_ptr
-                .add(params.sq_off.head as usize)
-                as _
-        };
-
-        // sq->ktail = sq->ring_ptr + p->sq_off.tail;
-        uring.sq.ktail = unsafe {
-            uring
-                .sq
-                .ring_ptr
-                .add(params.sq_off.tail as usize)
-                as _
-        };
-
-        // sq->kring_mask = sq->ring_ptr + p->sq_off.ring_mask;
-        uring.sq.kring_mask = unsafe {
-            uring
-                .sq
-                .ring_ptr
-                .add(params.sq_off.ring_mask as usize)
-                as _
-        };
-
-        // sq->kring_entries = sq->ring_ptr + p->sq_off.ring_entries;
-        uring.sq.kring_entries =
-            unsafe {
-                uring.sq.ring_ptr.add(
-                    params.sq_off.ring_entries as usize,
-                ) as _
-            };
-
-        // sq->kflags = sq->ring_ptr + p->sq_off.flags;
-        uring.sq.kflags = unsafe {
-            uring
-                .sq
-                .ring_ptr
-                .add(params.sq_off.flags as usize)
-                as _
-        };
-
-        // sq->kdropped = sq->ring_ptr + p->sq_off.dropped;
-        uring.sq.kdropped = unsafe {
-            uring
-                .sq
-                .ring_ptr
-                .add(params.sq_off.dropped as usize)
-                as _
-        };
-
-        // sq->array = sq->ring_ptr + p->sq_off.array;
-        uring.sq.array = unsafe {
-            uring
-                .sq
-                .ring_ptr
-                .add(params.sq_off.array as usize)
-                as _
-        };
 
         // size = p->sq_entries * sizeof(struct io_uring_sqe);
         let size: usize = params.sq_entries as usize
@@ -241,65 +153,104 @@ impl Uring {
             return Err(io::Error::last_os_error());
         }
 
-        uring.sq.sqes = sqes_ptr;
-
-        // cq->khead = cq->ring_ptr + p->cq_off.head;
-        uring.cq.khead = unsafe {
-            uring
-                .cq
-                .ring_ptr
-                .add(params.cq_off.head as usize)
-                as _
+        let sq = unsafe {
+            Sq {
+                sqe_head: 0,
+                sqe_tail: 0,
+                ring_sz: sq_ring_sz,
+                ring_ptr: sq_ring_ptr,
+                sqes: sqes_ptr,
+                // sq->khead = sq->ring_ptr + p->sq_off.head;
+                khead: sq_ring_ptr
+                    .add(params.sq_off.head as usize)
+                    as _,
+                // sq->ktail = sq->ring_ptr + p->sq_off.tail;
+                ktail: sq_ring_ptr
+                    .add(params.sq_off.tail as usize)
+                    as _,
+                // sq->kring_mask = sq->ring_ptr + p->sq_off.ring_mask;
+                kring_mask: sq_ring_ptr
+                    .add(params.sq_off.ring_mask as usize)
+                    as _,
+                // sq->kring_entries = sq->ring_ptr + p->sq_off.ring_entries;
+                kring_entries: sq_ring_ptr.add(
+                    params.sq_off.ring_entries as usize,
+                ) as _,
+                // sq->kflags = sq->ring_ptr + p->sq_off.flags;
+                kflags: sq_ring_ptr
+                    .add(params.sq_off.flags as usize)
+                    as _,
+                // sq->kdropped = sq->ring_ptr + p->sq_off.dropped;
+                kdropped: sq_ring_ptr
+                    .add(params.sq_off.dropped as usize)
+                    as _,
+                // sq->array = sq->ring_ptr + p->sq_off.array;
+                array: sq_ring_ptr
+                    .add(params.sq_off.array as usize)
+                    as _,
+            }
         };
 
-        // cq->ktail = cq->ring_ptr + p->cq_off.tail;
-        uring.cq.ktail = unsafe {
-            uring
-                .cq
-                .ring_ptr
-                .add(params.cq_off.tail as usize)
-                as _
-        };
+        // TODO IORING_FEAT_SINGLE_MMAP for cq
+        let cq_ring_sz = params.cq_off.cqes as usize
+            + (params.cq_entries as usize
+                * std::mem::size_of::<u32>());
 
-        // cq->kring_mask = cq->ring_ptr + p->cq_off.ring_mask;
-        uring.cq.kring_mask = unsafe {
-            uring
-                .cq
-                .ring_ptr
-                .add(params.cq_off.ring_mask as usize)
-                as _
-        };
+        let cq_ring_ptr = uring_mmap(
+            cq_ring_sz,
+            ring_fd,
+            IORING_OFF_CQ_RING as libc::off_t,
+        );
 
-        // cq->kring_entries = cq->ring_ptr + p->cq_off.ring_entries;
-        uring.cq.kring_entries =
-            unsafe {
-                uring.cq.ring_ptr.add(
+        if cq_ring_ptr.is_null()
+            || cq_ring_ptr == libc::MAP_FAILED
+        {
+            println!("src/io_uring/mod.rs:102");
+            return Err(io::Error::last_os_error());
+        }
+
+        let cq = unsafe {
+            Cq {
+                ring_sz: cq_ring_sz,
+                ring_ptr: cq_ring_ptr,
+                // cq->khead = cq->ring_ptr + p->cq_off.head;
+                khead: cq_ring_ptr
+                    .add(params.cq_off.head as usize)
+                    as _,
+
+                // cq->ktail = cq->ring_ptr + p->cq_off.tail;
+                ktail: cq_ring_ptr
+                    .add(params.cq_off.tail as usize)
+                    as _,
+
+                // cq->kring_mask = cq->ring_ptr + p->cq_off.ring_mask;
+                kring_mask: cq_ring_ptr
+                    .add(params.cq_off.ring_mask as usize)
+                    as _,
+
+                // cq->kring_entries = cq->ring_ptr + p->cq_off.ring_entries;
+                kring_entries: cq_ring_ptr.add(
                     params.cq_off.ring_entries as usize,
-                ) as _
-            };
+                ) as _,
 
-        // cq->koverflow = cq->ring_ptr + p->cq_off.overflow;
-        uring.cq.koverflow = unsafe {
-            uring
-                .cq
-                .ring_ptr
-                .add(params.cq_off.overflow as usize)
-                as _
+                // cq->koverflow = cq->ring_ptr + p->cq_off.overflow;
+                koverflow: cq_ring_ptr
+                    .add(params.cq_off.overflow as usize)
+                    as _,
+
+                // cq->cqes = cq->ring_ptr + p->cq_off.cqes;
+                cqes: cq_ring_ptr
+                    .add(params.cq_off.cqes as usize)
+                    as _,
+            }
         };
 
-        // cq->cqes = cq->ring_ptr + p->cq_off.cqes;
-        uring.cq.cqes = unsafe {
-            uring
-                .cq
-                .ring_ptr
-                .add(params.cq_off.cqes as usize)
-                as _
-        };
-
-        uring.flags = params.flags;
-        uring.ring_fd = ring_fd;
-
-        Ok(uring)
+        Ok(Uring {
+            flags: params.flags,
+            ring_fd,
+            cq,
+            sq,
+        })
     }
 
     pub fn enqueue_fsync(&mut self, file: &File) -> bool {
