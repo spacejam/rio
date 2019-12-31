@@ -39,7 +39,7 @@ pub struct Sq {
     khead: &'static AtomicU32,
     ktail: &'static AtomicU32,
     kring_mask: u32,
-    kring_entries: *const libc::c_uint,
+    kring_entries: u32,
     kflags: *const libc::c_uint,
     kdropped: *const libc::c_uint,
     array: *mut libc::c_uint,
@@ -74,7 +74,7 @@ pub struct Cq {
     pub khead: &'static AtomicU32,
     pub ktail: &'static AtomicU32,
     pub kring_mask: u32,
-    pub kring_entries: *const libc::c_uint,
+    pub kring_entries: u32,
     pub koverflow: *const AtomicU32,
     pub cqes: &'static mut [io_uring_cqe],
     pub ring_ptr: *const libc::c_void,
@@ -246,9 +246,10 @@ impl Uring {
                 kring_mask: *(sq_ring_ptr
                     .add(params.sq_off.ring_mask as usize)
                     as *mut u32),
-                kring_entries: sq_ring_ptr.add(
+                kring_entries: *(sq_ring_ptr.add(
                     params.sq_off.ring_entries as usize,
-                ) as _,
+                )
+                    as *const u32),
                 kflags: sq_ring_ptr
                     .add(params.sq_off.flags as usize)
                     as _,
@@ -291,9 +292,10 @@ impl Uring {
                 kring_mask: *(cq_ring_ptr
                     .add(params.cq_off.ring_mask as usize)
                     as *mut u32),
-                kring_entries: cq_ring_ptr.add(
+                kring_entries: *(cq_ring_ptr.add(
                     params.cq_off.ring_entries as usize,
-                ) as _,
+                )
+                    as *const u32),
                 koverflow: cq_ring_ptr
                     .add(params.cq_off.overflow as usize)
                     as _,
@@ -379,12 +381,11 @@ impl Uring {
             // non-polling mode
             let head = self.sq.sqe_head;
             println!("head is {:?}", head);
-            println!("kring_entries is {:?}", unsafe {
-                *self.sq.kring_entries
-            });
-            if next - head
-                <= unsafe { *self.sq.kring_entries }
-            {
+            println!(
+                "kring_entries is {:?}",
+                self.sq.kring_entries
+            );
+            if next - head <= self.sq.kring_entries {
                 let idx =
                     self.sq.sqe_tail & self.sq.kring_mask;
                 let ret = &mut self.sq.sqes[idx as usize];
