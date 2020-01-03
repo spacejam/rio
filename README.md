@@ -48,7 +48,7 @@ writen
 let mut ring = rio::new().expect("create uring");
 let file = std::fs::create("poop_file").expect("openat");
 let dater = [6; 66];
-let out_io_slice = std::io::IoSlice::new(&mut dater);
+let out_io_slice = std::io::IoSlice::new(&dater);
 let completion = ring.read(&file, &in_io_slice, at)?;
 
 // if using threadulous
