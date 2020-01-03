@@ -7,8 +7,9 @@
 misuse-resistant bindings for io_uring, focusing
 on users who want to do high-performance storage.
 
-* only relies on libc, no need for c/bindgen to complicate things
+* only relies on libc, no need for c/bindgen to complicate things, nobody wants that
 * the completions implement Future, if ur asyncy
+* as it gets built out, will leverage as much of the Rust type system as possible to prevent misuse
 
 This is a very early-stage project, but it will
 be the core of [sled's](http://sled.rs) IO stack
@@ -22,6 +23,42 @@ sled expects to use the following features:
 * SQPOLL mode for 0-syscall operation
 * registered files & IO buffers for lower overhead
 * write, read, connect, fsync, fdatasync, O_DIRECT
+
+# examples
+
+readn
+
+```rust
+let mut ring = rio::new().expect("create uring");
+let file = std::fs::open("poop_file").expect("openat");
+let mut dater = [0; 66];
+let mut in_io_slice = std::io::IoSliceMut::new(&mut dater);
+let completion = ring.read(&file, &mut in_io_slice, at)?;
+
+// if using threaddies
+completion.wait()?;
+
+// if using asyncus
+completion.await?
+```
+
+writen
+
+```rust
+let mut ring = rio::new().expect("create uring");
+let file = std::fs::create("poop_file").expect("openat");
+let dater = [6; 66];
+let out_io_slice = std::io::IoSlice::new(&mut dater);
+let completion = ring.read(&file, &in_io_slice, at)?;
+
+// if using threadulous
+completion.wait()?;
+
+// if using asyncoos
+completion.await?
+```
+
+speedy O_DIRECT shi0t
 
 ```rust
 use std::{
@@ -105,3 +142,5 @@ for completion in completions.into_iter() {
     }
 }
 ```
+
+btw if ur here from the internet u can fuck right the F off
