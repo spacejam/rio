@@ -8,13 +8,20 @@ misuse-resistant bindings for io_uring, focusing
 on users who want to do high-performance storage.
 
 * only relies on libc, no need for c/bindgen to complicate things
-* the completions implement Future if you boxed yourself into an async codebase
+* the completions implement Future, but I don't use that myself
 
 This is a very early-stage project, but it will
 be the core of [sled's](http://sled.rs) IO stack
 over time. It is built with a specific high-level
 application in mind: a high performance storage
 engine and replication system.
+
+sled expects to use the following features:
+
+* SQE linking for dependency specification
+* SQPOLL mode for 0-syscall operation
+* registered files & IO buffers for lower overhead
+* write, read, connect, fsync, fdatasync, O_DIRECT
 
 ```rust
 use std::{
