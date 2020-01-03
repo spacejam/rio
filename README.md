@@ -8,7 +8,7 @@ misuse-resistant bindings for io_uring, focusing
 on users who want to do high-performance storage.
 
 * only relies on libc, no need for c/bindgen to complicate things
-* the completions implement Future, but I don't use that myself
+* the completions implement Future, if ur asyncy
 
 This is a very early-stage project, but it will
 be the core of [sled's](http://sled.rs) IO stack
