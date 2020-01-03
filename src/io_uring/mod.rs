@@ -53,8 +53,8 @@ pub enum ReaperStyle {
 pub struct Sq {
     khead: &'static AtomicU32,
     ktail: &'static AtomicU32,
-    kring_mask: u32,
-    kring_entries: u32,
+    kring_mask: &'static u32,
+    kring_entries: &'static u32,
     kflags: *const libc::c_uint,
     kdropped: *const libc::c_uint,
     array: *mut libc::c_uint,
@@ -88,8 +88,8 @@ impl Drop for Sq {
 pub struct Cq {
     khead: &'static AtomicU32,
     ktail: &'static AtomicU32,
-    kring_mask: u32,
-    kring_entries: u32,
+    kring_mask: &'static u32,
+    kring_entries: &'static u32,
     koverflow: &'static AtomicU32,
     cqes: &'static mut [io_uring_cqe],
     ring_ptr: *const libc::c_void,
@@ -284,10 +284,10 @@ impl Uring {
                 ktail: &*(sq_ring_ptr
                     .add(params.sq_off.tail as usize)
                     as *const AtomicU32),
-                kring_mask: *(sq_ring_ptr
+                kring_mask: &*(sq_ring_ptr
                     .add(params.sq_off.ring_mask as usize)
-                    as *mut u32),
-                kring_entries: *(sq_ring_ptr.add(
+                    as *const u32),
+                kring_entries: &*(sq_ring_ptr.add(
                     params.sq_off.ring_entries as usize,
                 )
                     as *const u32),
@@ -330,10 +330,10 @@ impl Uring {
                 ktail: &*(cq_ring_ptr
                     .add(params.cq_off.tail as usize)
                     as *const AtomicU32),
-                kring_mask: *(cq_ring_ptr
+                kring_mask: &*(cq_ring_ptr
                     .add(params.cq_off.ring_mask as usize)
-                    as *mut u32),
-                kring_entries: *(cq_ring_ptr.add(
+                    as *const u32),
+                kring_entries: &*(cq_ring_ptr.add(
                     params.cq_off.ring_entries as usize,
                 )
                     as *const u32),
@@ -344,7 +344,7 @@ impl Uring {
                     cq_ring_ptr
                         .add(params.cq_off.cqes as usize)
                         as _,
-                    params.cq_off.cqes as usize,
+                    params.cq_entries as usize,
                 ),
                 pending: HashMap::new(),
             }
@@ -428,7 +428,7 @@ impl Uring {
         Ok(completion)
     }
 
-    pub(crate) fn get_sqe(
+    fn get_sqe(
         &mut self,
     ) -> io::Result<(
         Completion<io::Result<()>>,
@@ -440,7 +440,7 @@ impl Uring {
             if (self.flags & IORING_SETUP_SQPOLL) == 0 {
                 // non-polling mode
                 let head = self.sq.sqe_head;
-                if next - head <= self.sq.kring_entries {
+                if next - head <= *self.sq.kring_entries {
                     let idx = self.sq.sqe_tail
                         & self.sq.kring_mask;
                     let sqe =
@@ -472,7 +472,7 @@ impl Uring {
     }
 
     fn flush(&mut self) -> u32 {
-        let mask: u32 = self.sq.kring_mask;
+        let mask: u32 = *self.sq.kring_mask;
         if self.sq.sqe_head == self.sq.sqe_tail {
             return 0;
         }
