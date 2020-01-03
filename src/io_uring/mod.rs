@@ -515,12 +515,10 @@ impl Uring {
     }
 
     fn reap_ready_cqes(&mut self) -> usize {
-        let mut cq = if let Some(cq) = self.cq.try_lock() {
-            cq
+        if let Some(mut cq) = self.cq.try_lock() {
+            cq.reap_ready_cqes()
         } else {
-            return 0;
-        };
-
-        cq.reap_ready_cqes()
+            0
+        }
     }
 }

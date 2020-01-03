@@ -32,7 +32,7 @@ fn main() -> Result<()> {
 
     let mut completions = vec![];
 
-    for _ in 0..1000 {
+    for _ in 0..1024 {
         // write
         let completion =
             ring.write(&file, &out_io_slice, at)?;
