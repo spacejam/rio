@@ -41,6 +41,12 @@ pub struct Uring {
     max_id: u64,
 }
 
+pub enum Ordering {
+    None,
+    Link,
+    Drain,
+}
+
 pub enum ReaperStyle {
     Default,
     IoPoll,
@@ -111,7 +117,7 @@ impl Cq {
 
         while head != tail {
             let cq = cq_opt.take().unwrap();
-            let index = dbg!(head & cq.kring_mask);
+            let index = head & cq.kring_mask;
             let cqe = &cq.cqes[index as usize];
             let id = cqe.user_data;
             let res = cqe.res;
@@ -165,10 +171,11 @@ fn completion_marker(
     loop {
         if Arc::strong_count(&cq_mu) == 1 {
             // system shutdown
+            eprintln!("shutting down io_uring completion marker thread");
             return;
         }
         if let Err(e) = block_for_cqe(ring_fd) {
-            eprintln!("error in cqe reaper: {:?}", e);
+            panic!("error in cqe reaper: {:?}", e);
         } else {
             let mut cq = cq_mu.spin_lock();
             cq.reap_ready_cqes();
@@ -200,7 +207,7 @@ impl io_uring_sqe {
         file: &File,
         addr: *mut libc::c_void,
         len: usize,
-        at: u64,
+        off: u64,
     ) {
         *self = io_uring_sqe {
             opcode,
@@ -209,14 +216,18 @@ impl io_uring_sqe {
             fd: file.as_raw_fd(),
             addr: addr as u64,
             len: u32::try_from(len).unwrap(),
-            off: u64::try_from(at).unwrap(),
+            off,
             ..*self
         };
         self.__bindgen_anon_1.rw_flags = 0;
         self.__bindgen_anon_2.__pad2 = [0; 3];
     }
 
-    pub fn drain_everything_first(&mut self) {
+    pub fn link(&mut self) {
+        self.flags = self.flags | IOSQE_IO_LINK as u8
+    }
+
+    pub fn drain(&mut self) {
         self.flags = self.flags | IOSQE_IO_DRAIN as u8
     }
 }
@@ -366,21 +377,17 @@ impl Uring {
         })
     }
 
-    /// Sync the file. This does not work with O_DIRECT.
-    /// Sets a flag to guarantee that all previously
-    /// submitted operations happen first.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// ring.enqueue_fsync(&file);
-    /// ring.submit_all().expect("submit");
-    /// let cqe = ring.wait_cqe().unwrap();
-    /// cqe.seen();
-    /// ```
     pub fn fsync(
         &mut self,
         file: &File,
+    ) -> io::Result<Completion<io::Result<()>>> {
+        self.fsync_ordered(file, Ordering::None)
+    }
+
+    pub fn fsync_ordered(
+        &mut self,
+        file: &File,
+        ordering: Ordering,
     ) -> io::Result<Completion<io::Result<()>>> {
         let (completion, sqe) = self.get_sqe()?;
         sqe.prep_rw(
@@ -390,7 +397,40 @@ impl Uring {
             0,
             0,
         );
-        sqe.drain_everything_first();
+        match ordering {
+            Ordering::None => {}
+            Ordering::Link => sqe.link(),
+            Ordering::Drain => sqe.drain(),
+        }
+        Ok(completion)
+    }
+
+    pub fn fdatasync(
+        &mut self,
+        file: &File,
+    ) -> io::Result<Completion<io::Result<()>>> {
+        self.fdatasync_ordered(file, Ordering::None)
+    }
+
+    pub fn fdatasync_ordered(
+        &mut self,
+        file: &File,
+        ordering: Ordering,
+    ) -> io::Result<Completion<io::Result<()>>> {
+        let (completion, sqe) = self.get_sqe()?;
+        sqe.prep_rw(
+            IORING_OP_FSYNC,
+            file,
+            std::ptr::null_mut(),
+            0,
+            0,
+        );
+        sqe.flags = sqe.flags | IORING_FSYNC_DATASYNC;
+        match ordering {
+            Ordering::None => {}
+            Ordering::Link => sqe.link(),
+            Ordering::Drain => sqe.drain(),
+        }
         Ok(completion)
     }
 
@@ -400,6 +440,16 @@ impl Uring {
         iov: &IoSlice,
         at: u64,
     ) -> io::Result<Completion<io::Result<()>>> {
+        self.write_ordered(file, iov, at, Ordering::None)
+    }
+
+    pub fn write_ordered(
+        &mut self,
+        file: &File,
+        iov: &IoSlice,
+        at: u64,
+        ordering: Ordering,
+    ) -> io::Result<Completion<io::Result<()>>> {
         let (completion, sqe) = self.get_sqe()?;
         sqe.prep_rw(
             IORING_OP_WRITEV,
@@ -408,6 +458,11 @@ impl Uring {
             1,
             at,
         );
+        match ordering {
+            Ordering::None => {}
+            Ordering::Link => sqe.link(),
+            Ordering::Drain => sqe.drain(),
+        }
         Ok(completion)
     }
 
@@ -417,6 +472,16 @@ impl Uring {
         iov: &mut IoSliceMut,
         at: u64,
     ) -> io::Result<Completion<io::Result<()>>> {
+        self.read_ordered(file, iov, at, Ordering::None)
+    }
+
+    pub fn read_ordered(
+        &mut self,
+        file: &File,
+        iov: &mut IoSliceMut,
+        at: u64,
+        ordering: Ordering,
+    ) -> io::Result<Completion<io::Result<()>>> {
         let (completion, sqe) = self.get_sqe()?;
         sqe.prep_rw(
             IORING_OP_READV,
@@ -425,6 +490,11 @@ impl Uring {
             1,
             at,
         );
+        match ordering {
+            Ordering::None => {}
+            Ordering::Link => sqe.link(),
+            Ordering::Drain => sqe.drain(),
+        }
         Ok(completion)
     }
 

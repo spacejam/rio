@@ -24,7 +24,6 @@ fn main() -> Result<()> {
     // create output buffer
     let out_buf = Aligned([42; 4096 * 256]);
     let out_io_slice = IoSlice::new(&out_buf.0);
-    let at = 0;
 
     // create input buffer
     let mut in_buf = Aligned([0; 4096 * 256]);
@@ -32,7 +31,8 @@ fn main() -> Result<()> {
 
     let mut completions = vec![];
 
-    for _ in 0..1024 {
+    for i in 0..1024 {
+        let at = i * 4096 * 256;
         // write
         let completion =
             ring.write(&file, &out_io_slice, at)?;
@@ -43,6 +43,13 @@ fn main() -> Result<()> {
             ring.read(&file, &mut in_io_slice, at)?;
         completions.push(completion);
     }
+
+    /*
+    let fsync = ring.fsync(&file)?;
+    completions.push(fsync);
+    */
+
+    ring.submit_all()?;
 
     for completion in completions.into_iter() {
         completion
