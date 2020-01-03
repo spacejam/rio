@@ -5,7 +5,7 @@ echo "asan"
 cargo clean
 export RUSTFLAGS="-Z sanitizer=address"
 export ASAN_OPTIONS="detect_odr_violation=0"
-cargo +nightly test --target x86_64-unknown-linux-gnu
+cargo +nightly build --tests --target x86_64-unknown-linux-gnu
 unset ASAN_OPTIONS
 
 echo "lsan"
