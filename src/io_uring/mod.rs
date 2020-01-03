@@ -306,7 +306,7 @@ impl Uring {
         // TODO IORING_FEAT_SINGLE_MMAP for cq
         let cq_ring_sz = params.cq_off.cqes as usize
             + (params.cq_entries as usize
-                * std::mem::size_of::<u32>());
+                * std::mem::size_of::<io_uring_cqe>());
 
         let cq_ring_ptr = uring_mmap(
             cq_ring_sz,
