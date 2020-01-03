@@ -11,9 +11,9 @@ unset ASAN_OPTIONS
 echo "lsan"
 cargo clean
 export RUSTFLAGS="-Z sanitizer=leak"
-cargo +nightly run --target x86_64-unknown-linux-gnu
+cargo +nightly run --example=o_direct --target x86_64-unknown-linux-gnu
 
 echo "tsan"
 cargo clean
 export RUSTFLAGS="-Z sanitizer=thread"
-cargo +nightly run --target x86_64-unknown-linux-gnu
+cargo +nightly run --example=o_direct --target x86_64-unknown-linux-gnu

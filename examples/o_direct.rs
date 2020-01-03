@@ -4,16 +4,20 @@ use std::{
     os::unix::fs::OpenOptionsExt,
 };
 
-const BLOCK_SIZE: u64 = 4096;
+const CHUNK_SIZE: u64 = 4096 * 256;
 
+// `O_DIRECT` requires all reads and writes
+// to be aligned to the block device's block
+// size. 4096 might not be the best, or even
+// a valid one, for yours!
 #[repr(align(4096))]
-struct Aligned([u8; BLOCK_SIZE as usize]);
+struct Aligned([u8; CHUNK_SIZE as usize]);
 
 fn main() -> Result<()> {
     // start the ring
     let mut ring = rio::new().expect("create uring");
 
-    // open output file
+    // open output file, with `O_DIRECT` set
     let file = OpenOptions::new()
         .read(true)
         .write(true)
@@ -24,40 +28,42 @@ fn main() -> Result<()> {
         .expect("open file");
 
     // create output buffer
-    let out_buf = Aligned([42; BLOCK_SIZE as usize]);
+    let out_buf = Aligned([42; CHUNK_SIZE as usize]);
     let out_io_slice = IoSlice::new(&out_buf.0);
 
     // create input buffer
-    let mut in_buf = Aligned([0; BLOCK_SIZE as usize]);
+    let mut in_buf = Aligned([0; CHUNK_SIZE as usize]);
     let mut in_io_slice = IoSliceMut::new(&mut in_buf.0);
 
     let mut completions = vec![];
 
-    for i in 0..1024 {
-        let at = i * BLOCK_SIZE;
-        // Write
-        let completion =
-            ring.write(&file, &out_io_slice, at)?;
-        completions.push(completion);
+    for i in 0..(4 * 1024) {
+        let at = i * CHUNK_SIZE;
 
-        // Read, using `Ordering::Link`,
-        // causing the read to wait for the
-        // previous operation (write in this
-        // case) to complete before starting.
+        // Write using `Ordering::Link`,
+        // causing the next operation to wait
+        // for the this operation
+        // to complete before starting.
         //
-        // If the previous operation does not
-        // fully complete, this operation
-        // fails with `ECANCELED`.
+        // If this operation does not
+        // fully complete, the next linked
+        // operation fails with `ECANCELED`.
         //
         // io_uring executes unchained
         // operations out-of-order to
-        // improve performance.
-        let completion = ring.read_ordered(
+        // improve performance. It interleaves
+        // operations from different chains
+        // to improve performance.
+        let completion = ring.write_ordered(
             &file,
-            &mut in_io_slice,
+            &out_io_slice,
             at,
             rio::Ordering::Link,
         )?;
+        completions.push(completion);
+
+        let completion =
+            ring.read(&file, &mut in_io_slice, at)?;
         completions.push(completion);
     }
 
