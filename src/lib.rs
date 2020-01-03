@@ -9,7 +9,7 @@ mod fastlock;
 mod io_uring;
 
 #[cfg(target_os = "linux")]
-pub use io_uring::Uring as Rio;
+pub use io_uring::{Ordering, Uring as Rio};
 
 /// Create a new IO system.
 pub fn new() -> io::Result<Rio> {

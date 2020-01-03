@@ -208,7 +208,12 @@ impl io_uring_sqe {
         addr: *mut libc::c_void,
         len: usize,
         off: u64,
+        ordering: Ordering,
     ) {
+        assert_ne!(
+            self.user_data, 0,
+            "expected user_data to already be set"
+        );
         *self = io_uring_sqe {
             opcode,
             flags: 0,
@@ -219,16 +224,24 @@ impl io_uring_sqe {
             off,
             ..*self
         };
+
         self.__bindgen_anon_1.rw_flags = 0;
         self.__bindgen_anon_2.__pad2 = [0; 3];
+
+        self.apply_order(ordering);
     }
 
-    pub fn link(&mut self) {
-        self.flags = self.flags | IOSQE_IO_LINK as u8
-    }
-
-    pub fn drain(&mut self) {
-        self.flags = self.flags | IOSQE_IO_DRAIN as u8
+    pub fn apply_order(&mut self, ordering: Ordering) {
+        match ordering {
+            Ordering::None => {}
+            Ordering::Link => {
+                self.flags = self.flags | IOSQE_IO_LINK
+            }
+            Ordering::Drain => {
+                self.flags =
+                    self.flags | IOSQE_IO_DRAIN as u8
+            }
+        }
     }
 }
 
@@ -396,12 +409,8 @@ impl Uring {
             std::ptr::null_mut(),
             0,
             0,
+            ordering,
         );
-        match ordering {
-            Ordering::None => {}
-            Ordering::Link => sqe.link(),
-            Ordering::Drain => sqe.drain(),
-        }
         Ok(completion)
     }
 
@@ -424,13 +433,9 @@ impl Uring {
             std::ptr::null_mut(),
             0,
             0,
+            ordering,
         );
         sqe.flags = sqe.flags | IORING_FSYNC_DATASYNC;
-        match ordering {
-            Ordering::None => {}
-            Ordering::Link => sqe.link(),
-            Ordering::Drain => sqe.drain(),
-        }
         Ok(completion)
     }
 
@@ -457,12 +462,8 @@ impl Uring {
             iov as *const _ as _,
             1,
             at,
+            ordering,
         );
-        match ordering {
-            Ordering::None => {}
-            Ordering::Link => sqe.link(),
-            Ordering::Drain => sqe.drain(),
-        }
         Ok(completion)
     }
 
@@ -489,12 +490,8 @@ impl Uring {
             iov as *mut _ as _,
             1,
             at,
+            ordering,
         );
-        match ordering {
-            Ordering::None => {}
-            Ordering::Link => sqe.link(),
-            Ordering::Drain => sqe.drain(),
-        }
         Ok(completion)
     }
 
