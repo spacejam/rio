@@ -5,7 +5,7 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-use super::{fastlock::FastLock, io_uring::Cq};
+use super::{io_uring::Cq, FastLock};
 
 #[derive(Debug)]
 struct CompletionState<T> {

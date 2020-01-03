@@ -14,10 +14,7 @@ use std::{
     },
 };
 
-use super::{
-    completion::{pair, Completion, CompletionFiller},
-    fastlock::FastLock,
-};
+use super::{pair, Completion, CompletionFiller, FastLock};
 
 mod constants;
 mod kernel_types;
