@@ -2,8 +2,8 @@
 
 use std::io;
 
+mod completion;
 mod fastlock;
-mod promise;
 
 #[cfg(target_os = "linux")]
 mod io_uring;

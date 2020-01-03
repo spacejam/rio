@@ -30,22 +30,22 @@ fn main() -> Result<()> {
     let mut in_buf = Aligned([0; 4096 * 256]);
     let mut in_io_slice = IoSliceMut::new(&mut in_buf.0);
 
-    let mut promises = vec![];
+    let mut completions = vec![];
 
     for _ in 0..1000 {
         // write
-        let promise =
+        let completion =
             ring.write(&file, &out_io_slice, at)?;
-        promises.push(promise);
+        completions.push(completion);
 
         // read
-        let promise =
+        let completion =
             ring.read(&file, &mut in_io_slice, at)?;
-        promises.push(promise);
+        completions.push(completion);
     }
 
-    for promise in promises.into_iter() {
-        promise
+    for completion in completions.into_iter() {
+        completion
             .wait()
             .expect("should be able to write and read");
     }

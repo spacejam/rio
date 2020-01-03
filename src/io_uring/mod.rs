@@ -15,8 +15,8 @@ use std::{
 };
 
 use super::{
+    completion::{pair, Completion, CompletionFiller},
     fastlock::FastLock,
-    promise::{pair, Promise, PromiseFiller},
 };
 
 mod constants;
@@ -94,7 +94,7 @@ pub struct Cq {
     cqes: &'static mut [io_uring_cqe],
     ring_ptr: *const libc::c_void,
     ring_sz: usize,
-    pending: HashMap<u64, PromiseFiller<io::Result<()>>>,
+    pending: HashMap<u64, CompletionFiller<io::Result<()>>>,
 }
 
 unsafe impl Send for Cq {}
@@ -111,21 +111,21 @@ impl Cq {
 
         while head != tail {
             let cq = cq_opt.take().unwrap();
-            let index = head & cq.kring_mask;
+            let index = dbg!(head & cq.kring_mask);
             let cqe = &cq.cqes[index as usize];
             let id = cqe.user_data;
             let res = cqe.res;
-            let promise_filler = cq
-                .pending
-                .remove(&id)
-                .expect("expect a queued promise filler");
+            let completion_filler =
+                cq.pending.remove(&id).expect(
+                    "expect a queued completion filler",
+                );
             let result = if res < 0 {
                 Err(io::Error::from_raw_os_error(-1 * res))
             } else {
                 Ok(())
             };
 
-            promise_filler.fill(result);
+            completion_filler.fill(result);
 
             cq.khead.fetch_add(1, Release);
             cq_opt = Some(cq);
@@ -381,8 +381,8 @@ impl Uring {
     pub fn fsync(
         &mut self,
         file: &File,
-    ) -> io::Result<Promise<io::Result<()>>> {
-        let (promise, sqe) = self.get_sqe()?;
+    ) -> io::Result<Completion<io::Result<()>>> {
+        let (completion, sqe) = self.get_sqe()?;
         sqe.prep_rw(
             IORING_OP_FSYNC,
             file,
@@ -391,7 +391,7 @@ impl Uring {
             0,
         );
         sqe.drain_everything_first();
-        Ok(promise)
+        Ok(completion)
     }
 
     pub fn write(
@@ -399,8 +399,8 @@ impl Uring {
         file: &File,
         iov: &IoSlice,
         at: u64,
-    ) -> io::Result<Promise<io::Result<()>>> {
-        let (promise, sqe) = self.get_sqe()?;
+    ) -> io::Result<Completion<io::Result<()>>> {
+        let (completion, sqe) = self.get_sqe()?;
         sqe.prep_rw(
             IORING_OP_WRITEV,
             file,
@@ -408,7 +408,7 @@ impl Uring {
             1,
             at,
         );
-        Ok(promise)
+        Ok(completion)
     }
 
     pub fn read(
@@ -416,8 +416,8 @@ impl Uring {
         file: &File,
         iov: &mut IoSliceMut,
         at: u64,
-    ) -> io::Result<Promise<io::Result<()>>> {
-        let (promise, sqe) = self.get_sqe()?;
+    ) -> io::Result<Completion<io::Result<()>>> {
+        let (completion, sqe) = self.get_sqe()?;
         sqe.prep_rw(
             IORING_OP_READV,
             file,
@@ -425,13 +425,13 @@ impl Uring {
             1,
             at,
         );
-        Ok(promise)
+        Ok(completion)
     }
 
     pub(crate) fn get_sqe(
         &mut self,
     ) -> io::Result<(
-        Promise<io::Result<()>>,
+        Completion<io::Result<()>>,
         &mut io_uring_sqe,
     )> {
         loop {
@@ -450,7 +450,7 @@ impl Uring {
                     let id = self.max_id;
                     sqe.user_data = id;
 
-                    let (promise, filler) =
+                    let (completion, filler) =
                         pair(self.cq.clone());
 
                     let mut cq = self.cq.spin_lock();
@@ -459,7 +459,7 @@ impl Uring {
                         .insert(sqe.user_data, filler)
                         .is_none());
 
-                    return Ok((promise, sqe));
+                    return Ok((completion, sqe));
                 } else {
                     self.submit_all()?;
                     self.reap_ready_cqes();
