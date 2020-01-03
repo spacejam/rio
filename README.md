@@ -1,4 +1,4 @@
-* [documentation](https://docs.rs/sled)
+* [documentation](https://docs.rs/rio)
 * [chat](https://discord.gg/Z6VsXds)
 * [sponsor](https://github.com/sponsors/spacejam)
 
