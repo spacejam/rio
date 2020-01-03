@@ -28,7 +28,8 @@ pub(crate) fn setup(
             as c_int
     };
     if ret < 0 {
-        return Err(io::Error::last_os_error());
+        let err = io::Error::last_os_error();
+        return Err(err);
     }
     Ok(ret)
 }
@@ -40,22 +41,32 @@ pub(crate) fn enter(
     flags: c_uint,
     sig: *mut libc::sigset_t,
 ) -> io::Result<c_int> {
-    let ret = unsafe {
-        syscall(
-            ENTER,
-            fd as c_long,
-            to_submit as c_long,
-            min_complete as c_long,
-            flags as c_long,
-            sig as c_long,
-            core::mem::size_of::<libc::sigset_t>()
-                as c_long,
-        ) as c_int
-    };
-    if ret < 0 {
-        return Err(io::Error::last_os_error());
+    loop {
+        // this is strapped into an interruption
+        // diaper loop because it's the one that
+        // might actually block a lot
+        let ret = unsafe {
+            syscall(
+                ENTER,
+                fd as c_long,
+                to_submit as c_long,
+                min_complete as c_long,
+                flags as c_long,
+                sig as c_long,
+                core::mem::size_of::<libc::sigset_t>()
+                    as c_long,
+            ) as c_int
+        };
+        if ret < 0 {
+            let err = io::Error::last_os_error();
+            if err.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(err);
+        } else {
+            return Ok(ret);
+        }
     }
-    Ok(ret)
 }
 
 pub(crate) fn register(
