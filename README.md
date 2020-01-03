@@ -44,8 +44,8 @@ let mut ring = rio::new().expect("create uring");
 
 // open output file, with `O_DIRECT` set
 let file = OpenOptions::new()
-    .read(true)
-    .write(true)
+  .read(true)
+  .write(true)
   .create(true)
   .truncate(true)
   .custom_flags(libc::O_DIRECT)
