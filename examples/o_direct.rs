@@ -37,7 +37,7 @@ fn main() -> Result<()> {
 
     let mut completions = vec![];
 
-    for i in 0..(4 * 1024) {
+    for i in 0..(10 * 1024) {
         let at = i * CHUNK_SIZE;
 
         // Write using `Ordering::Link`,
