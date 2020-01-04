@@ -24,7 +24,7 @@ sled expects to use the following features:
 * registered files & IO buffers for lower overhead
 * write, read, connect, fsync, fdatasync, O_DIRECT
 
-# examples
+# examples that will be broken in the next day or two
 
 readn
 
