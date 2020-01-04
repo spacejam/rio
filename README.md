@@ -4,7 +4,7 @@
 
 # rio
 
-misuse-resistant bindings for io_uring, focusing
+pre-alpha misuse-resistant bindings for io_uring, focusing
 on users who want to do high-performance storage.
 
 * only relies on libc, no need for c/bindgen to complicate things, nobody wants that
