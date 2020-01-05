@@ -4,7 +4,6 @@ use std::{
     fs::File,
     io::{self, IoSlice, IoSliceMut},
     os::unix::io::AsRawFd,
-    slice::from_raw_parts_mut,
     sync::{
         atomic::{
             AtomicU32,
@@ -16,6 +15,7 @@ use std::{
 
 use super::{pair, Completion, CompletionFiller, FastLock};
 
+mod config;
 mod constants;
 mod kernel_types;
 mod syscall;
@@ -27,6 +27,8 @@ use kernel_types::{
 use constants::*;
 
 use syscall::{enter, setup};
+
+pub use config::Config;
 
 /// Nice bindings for the shiny new linux IO system
 #[derive(Debug)]
@@ -44,13 +46,6 @@ pub enum Ordering {
     Drain,
 }
 
-pub enum ReaperStyle {
-    Default,
-    IoPoll,
-    SqPoll,
-    PinnedSqPoll(u32),
-}
-
 /// Sprays uring submissions.
 #[derive(Debug)]
 pub struct Sq {
@@ -58,7 +53,7 @@ pub struct Sq {
     ktail: &'static AtomicU32,
     kring_mask: &'static u32,
     kring_entries: &'static u32,
-    kflags: *const libc::c_uint,
+    kflags: &'static libc::c_uint,
     kdropped: *const libc::c_uint,
     array: *mut libc::c_uint,
     sqes: &'static mut [io_uring_sqe],
@@ -243,150 +238,6 @@ impl io_uring_sqe {
 }
 
 impl Uring {
-    pub fn new(depth: usize) -> io::Result<Uring> {
-        let mut params = io_uring_params::default();
-
-        let ring_fd =
-            setup(depth as _, &mut params as *mut _)?;
-
-        if ring_fd < 0 {
-            return Err(io::Error::last_os_error());
-        }
-
-        let sq_ring_sz = params.sq_off.array as usize
-            + (params.sq_entries as usize
-                * std::mem::size_of::<u32>());
-
-        // TODO IORING_FEAT_SINGLE_MMAP for sq
-
-        let sq_ring_ptr = uring_mmap(
-            sq_ring_sz,
-            ring_fd,
-            IORING_OFF_SQ_RING as libc::off_t,
-        );
-
-        if sq_ring_ptr.is_null()
-            || sq_ring_ptr == libc::MAP_FAILED
-        {
-            return Err(io::Error::last_os_error());
-        }
-
-        // size = p->sq_entries * sizeof(struct io_uring_sqe);
-        let sqes_sz: usize = params.sq_entries as usize
-            * std::mem::size_of::<io_uring_sqe>();
-
-        let sqes_ptr: *mut io_uring_sqe = uring_mmap(
-            sqes_sz,
-            ring_fd,
-            IORING_OFF_SQES as libc::off_t,
-        ) as _;
-
-        if sqes_ptr.is_null()
-            || sqes_ptr
-                == libc::MAP_FAILED as *mut io_uring_sqe
-        {
-            return Err(io::Error::last_os_error());
-        }
-
-        let sq = unsafe {
-            Sq {
-                sqe_head: 0,
-                sqe_tail: 0,
-                ring_ptr: sq_ring_ptr,
-                ring_sz: sq_ring_sz,
-                sqes_sz: sqes_sz,
-                sqes: from_raw_parts_mut(
-                    sqes_ptr,
-                    params.sq_entries as usize,
-                ),
-                khead: &*(sq_ring_ptr
-                    .add(params.sq_off.head as usize)
-                    as *const AtomicU32),
-                ktail: &*(sq_ring_ptr
-                    .add(params.sq_off.tail as usize)
-                    as *const AtomicU32),
-                kring_mask: &*(sq_ring_ptr
-                    .add(params.sq_off.ring_mask as usize)
-                    as *const u32),
-                kring_entries: &*(sq_ring_ptr.add(
-                    params.sq_off.ring_entries as usize,
-                )
-                    as *const u32),
-                kflags: sq_ring_ptr
-                    .add(params.sq_off.flags as usize)
-                    as _,
-                kdropped: sq_ring_ptr
-                    .add(params.sq_off.dropped as usize)
-                    as _,
-                array: sq_ring_ptr
-                    .add(params.sq_off.array as usize)
-                    as _,
-            }
-        };
-
-        // TODO IORING_FEAT_SINGLE_MMAP for cq
-        let cq_ring_sz = params.cq_off.cqes as usize
-            + (params.cq_entries as usize
-                * std::mem::size_of::<io_uring_cqe>());
-
-        let cq_ring_ptr = uring_mmap(
-            cq_ring_sz,
-            ring_fd,
-            IORING_OFF_CQ_RING as libc::off_t,
-        );
-
-        if cq_ring_ptr.is_null()
-            || cq_ring_ptr == libc::MAP_FAILED
-        {
-            return Err(io::Error::last_os_error());
-        }
-
-        let cq = unsafe {
-            Cq {
-                ring_ptr: cq_ring_ptr,
-                ring_sz: cq_ring_sz,
-                khead: &*(cq_ring_ptr
-                    .add(params.cq_off.head as usize)
-                    as *const AtomicU32),
-                ktail: &*(cq_ring_ptr
-                    .add(params.cq_off.tail as usize)
-                    as *const AtomicU32),
-                kring_mask: &*(cq_ring_ptr
-                    .add(params.cq_off.ring_mask as usize)
-                    as *const u32),
-                kring_entries: &*(cq_ring_ptr.add(
-                    params.cq_off.ring_entries as usize,
-                )
-                    as *const u32),
-                koverflow: &*(cq_ring_ptr
-                    .add(params.cq_off.overflow as usize)
-                    as *const AtomicU32),
-                cqes: from_raw_parts_mut(
-                    cq_ring_ptr
-                        .add(params.cq_off.cqes as usize)
-                        as _,
-                    params.cq_entries as usize,
-                ),
-                pending: HashMap::new(),
-            }
-        };
-
-        let cq_arc = Arc::new(FastLock::new(cq));
-        let completion_cq_arc = cq_arc.clone();
-
-        std::thread::spawn(move || {
-            completion_marker(ring_fd, completion_cq_arc)
-        });
-
-        Ok(Uring {
-            flags: params.flags,
-            ring_fd,
-            sq,
-            cq: cq_arc,
-            max_id: 0,
-        })
-    }
-
     pub fn fsync(
         &mut self,
         file: &File,
@@ -561,19 +412,33 @@ impl Uring {
     }
 
     pub fn submit_all(&mut self) -> io::Result<()> {
-        // TODO skip submission if we don't need to do it
-        // TODO for polling, keep flags at 0
-        let flags = IORING_ENTER_GETEVENTS;
-        let mut submitted = self.flush();
-        while submitted > 0 {
-            let ret = enter(
-                self.ring_fd,
-                submitted,
-                0,
-                flags,
-                std::ptr::null_mut(),
-            )?;
-            submitted -= u32::try_from(ret).unwrap();
+        if self.flags & IORING_SETUP_SQPOLL != 0 {
+            // skip submission if we don't need to do it
+            if self.sq.kflags & IORING_SQ_NEED_WAKEUP != 0 {
+                let to_submit =
+                    self.sq.sqe_tail - self.sq.sqe_head;
+                enter(
+                    self.ring_fd,
+                    to_submit,
+                    0,
+                    IORING_ENTER_SQ_WAKEUP,
+                    std::ptr::null_mut(),
+                )?;
+            }
+        } else {
+            // TODO for polling, keep flags at 0
+            let flags = IORING_ENTER_GETEVENTS;
+            let mut submitted = self.flush();
+            while submitted > 0 {
+                let ret = enter(
+                    self.ring_fd,
+                    submitted,
+                    0,
+                    flags,
+                    std::ptr::null_mut(),
+                )?;
+                submitted -= u32::try_from(ret).unwrap();
+            }
         }
         Ok(())
     }
