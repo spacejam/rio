@@ -163,7 +163,7 @@ impl Config {
         let completion_cq_arc = cq_arc.clone();
 
         std::thread::spawn(move || {
-            completion_marker(ring_fd, completion_cq_arc)
+            reaper(ring_fd, completion_cq_arc)
         });
 
         Ok(Uring {

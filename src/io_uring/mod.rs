@@ -145,10 +145,7 @@ impl Drop for Cq {
     }
 }
 
-fn completion_marker(
-    ring_fd: i32,
-    cq_mu: Arc<FastLock<Cq>>,
-) {
+fn reaper(ring_fd: i32, cq_mu: Arc<FastLock<Cq>>) {
     fn block_for_cqe(ring_fd: i32) -> io::Result<()> {
         let flags = IORING_ENTER_GETEVENTS;
         let submit = 0;
