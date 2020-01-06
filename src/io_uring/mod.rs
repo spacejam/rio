@@ -440,7 +440,7 @@ impl Uring {
             sqe.prep_rw(
                 IORING_OP_WRITEV,
                 file,
-                iov as *const _ as _,
+                iov.as_ptr() as _,
                 1,
                 at,
                 ordering,
@@ -478,7 +478,7 @@ impl Uring {
             sqe.prep_rw(
                 IORING_OP_READV,
                 file,
-                iov as *mut _ as _,
+                iov.as_mut_ptr() as _,
                 1,
                 at,
                 ordering,

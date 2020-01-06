@@ -46,8 +46,9 @@ impl Config {
                 params
             };
 
-        let ring_fd =
-            setup(self.depth as _, &mut params as *mut _)?;
+        let params_ptr: *mut io_uring_params = &mut params;
+
+        let ring_fd = setup(self.depth as _, params_ptr)?;
 
         if ring_fd < 0 {
             return Err(io::Error::last_os_error());
