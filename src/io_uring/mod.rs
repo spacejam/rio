@@ -340,45 +340,47 @@ impl Uring {
         Ok(completion)
     }
 
-    fn get_sqe(
+    fn get_sqe<'s, 'b>(
         &mut self,
     ) -> io::Result<(
-        Completion<io::Result<()>>,
+        Completion<'b, io::Result<()>>,
         &mut io_uring_sqe,
     )> {
         loop {
             let next = self.sq.sqe_tail + 1;
 
-            if (self.flags & IORING_SETUP_SQPOLL) == 0 {
+            let head = if (self.flags & IORING_SETUP_SQPOLL)
+                == 0
+            {
                 // non-polling mode
-                let head = self.sq.sqe_head;
-                if next - head <= *self.sq.kring_entries {
-                    let idx = self.sq.sqe_tail
-                        & self.sq.kring_mask;
-                    let sqe =
-                        &mut self.sq.sqes[idx as usize];
-                    self.sq.sqe_tail = next;
-                    self.max_id += 1;
-                    let id = self.max_id;
-                    sqe.user_data = id;
-
-                    let (completion, filler) =
-                        pair(self.cq.clone());
-
-                    let mut cq = self.cq.spin_lock();
-                    assert!(cq
-                        .pending
-                        .insert(sqe.user_data, filler)
-                        .is_none());
-
-                    return Ok((completion, sqe));
-                } else {
-                    self.submit_all()?;
-                    self.reap_ready_cqes();
-                }
+                self.sq.sqe_head
             } else {
                 // polling mode
-                todo!()
+                self.sq.khead.load(Acquire)
+            };
+
+            if next - head <= *self.sq.kring_entries {
+                let idx =
+                    self.sq.sqe_tail & self.sq.kring_mask;
+                let sqe = &mut self.sq.sqes[idx as usize];
+                self.sq.sqe_tail = next;
+                self.max_id += 1;
+                let id = self.max_id;
+                sqe.user_data = id;
+
+                let (completion, filler) =
+                    pair(self.cq.clone());
+
+                let mut cq = self.cq.spin_lock();
+                assert!(cq
+                    .pending
+                    .insert(sqe.user_data, filler)
+                    .is_none());
+
+                return Ok((completion, sqe));
+            } else {
+                self.submit_all()?;
+                self.reap_ready_cqes();
             }
         }
     }
