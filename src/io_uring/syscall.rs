@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use std::io;
+use std::{convert::TryFrom, io};
 
 use libc::{c_int, c_long, c_uint, syscall};
 
@@ -25,14 +25,13 @@ pub(crate) fn setup(
     );
     #[allow(unsafe_code)]
     let ret = unsafe {
-        syscall(SETUP, entries as c_long, p as c_long)
-            as c_int
+        syscall(SETUP, i64::from(entries), p as c_long)
     };
     if ret < 0 {
         let err = io::Error::last_os_error();
         return Err(err);
     }
-    Ok(ret)
+    Ok(i32::try_from(ret).unwrap())
 }
 
 pub(crate) fn enter(
@@ -50,14 +49,14 @@ pub(crate) fn enter(
         let ret = unsafe {
             syscall(
                 ENTER,
-                fd as c_long,
-                to_submit as c_long,
-                min_complete as c_long,
-                flags as c_long,
+                i64::from(fd),
+                i64::from(to_submit),
+                i64::from(min_complete),
+                i64::from(flags),
                 sig as c_long,
                 core::mem::size_of::<libc::sigset_t>()
                     as c_long,
-            ) as c_int
+            )
         };
         if ret < 0 {
             let err = io::Error::last_os_error();
@@ -66,7 +65,7 @@ pub(crate) fn enter(
             }
             return Err(err);
         } else {
-            return Ok(ret);
+            return Ok(i32::try_from(ret).unwrap());
         }
     }
 }
@@ -81,14 +80,14 @@ pub(crate) fn register(
     let ret = unsafe {
         syscall(
             REGISTER,
-            fd as c_long,
-            opcode as c_long,
+            i64::from(fd),
+            i64::from(opcode),
             arg as c_long,
-            nr_args as c_long,
-        ) as c_int
+            i64::from(nr_args),
+        )
     };
     if ret < 0 {
         return Err(io::Error::last_os_error());
     }
-    Ok(ret)
+    Ok(i32::try_from(ret).unwrap())
 }
