@@ -333,8 +333,7 @@ impl io_uring_sqe {
                 self.flags = self.flags | IOSQE_IO_LINK
             }
             Ordering::Drain => {
-                self.flags =
-                    self.flags | IOSQE_IO_DRAIN as u8
+                self.flags = self.flags | IOSQE_IO_DRAIN
             }
         }
     }
