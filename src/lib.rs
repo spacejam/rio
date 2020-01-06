@@ -189,8 +189,6 @@ pub fn new() -> io::Result<Rio> {
 
 #[cfg(test)]
 mod use_cases {
-    use super::new;
-
     #[test]
     #[ignore]
     fn broadcast() {
