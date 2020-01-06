@@ -21,7 +21,7 @@ pub struct io_uring_params {
     pub flags: u32,
     pub sq_thread_cpu: u32,
     pub sq_thread_idle: u32,
-    pub resv: [u32; 5usize],
+    pub resv: [u32; 5_usize],
     pub sq_off: io_sqring_offsets,
     pub cq_off: io_cqring_offsets,
 }
@@ -76,8 +76,8 @@ impl fmt::Debug for io_uring_sqe__bindgen_ty_1 {
 #[derive(Copy, Clone)]
 pub union io_uring_sqe__bindgen_ty_2 {
     pub buf_index: u16,
-    pub __pad2: [u64; 3usize],
-    _bindgen_union_align: [u64; 3usize],
+    pub __pad2: [u64; 3_usize],
+    _bindgen_union_align: [u64; 3_usize],
 }
 
 impl fmt::Debug for io_uring_sqe__bindgen_ty_2 {
@@ -121,5 +121,5 @@ pub struct io_cqring_offsets {
     pub ring_entries: u32,
     pub overflow: u32,
     pub cqes: u32,
-    pub resv: [u64; 2usize],
+    pub resv: [u64; 2_usize],
 }
