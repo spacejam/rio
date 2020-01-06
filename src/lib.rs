@@ -3,10 +3,11 @@
 //! # Examples
 //!
 //! # Really shines with O_DIRECT:
-//! ```
+//!
+//! ```no_run
 //! use std::{
 //!     fs::OpenOptions,
-//!     io::{IoSlice, IoSliceMut, Result},
+//!     io::{IoSlice, Result},
 //!     os::unix::fs::OpenOptionsExt,
 //! };
 //!
@@ -21,7 +22,7 @@
 //!
 //! fn main() -> Result<()> {
 //!     // start the ring
-//!     let mut ring = rio::new().expect("create uring");
+//!     let ring = rio::new().expect("create uring");
 //!
 //!     // open output file, with `O_DIRECT` set
 //!     let file = OpenOptions::new()
@@ -37,53 +38,23 @@
 //!     let out_buf = Aligned([42; CHUNK_SIZE as usize]);
 //!     let out_io_slice = IoSlice::new(&out_buf.0);
 //!
-//!     // create input buffer
-//!     let mut in_buf = Aligned([0; CHUNK_SIZE as usize]);
-//!     let mut in_io_slice = IoSliceMut::new(&mut in_buf.0);
-//!
 //!     let mut completions = vec![];
 //!
 //!     for i in 0..(4 * 1024) {
 //!         let at = i * CHUNK_SIZE;
 //!
-//!         // Write using `Ordering::Link`,
-//!         // causing the next operation to wait
-//!         // for the this operation
-//!         // to complete before starting.
-//!         //
-//!         // If this operation does not
-//!         // fully complete, the next linked
-//!         // operation fails with `ECANCELED`.
-//!         //
-//!         // io_uring executes unchained
-//!         // operations out-of-order to
-//!         // improve performance. It interleaves
-//!         // operations from different chains
-//!         // to improve performance.
-//!         let completion = ring.write_ordered(
+//!         let completion = ring.write_at(
 //!             &file,
 //!             &out_io_slice,
 //!             at,
-//!             rio::Ordering::Link,
 //!         )?;
-//!         completions.push(completion);
-//!
-//!         let completion =
-//!             ring.read(&file, &mut in_io_slice, at)?;
 //!         completions.push(completion);
 //!     }
 //!
 //!     ring.submit_all()?;
 //!
-//!     let mut canceled = 0;
 //!     for completion in completions.into_iter() {
-//!         match completion.wait() {
-//!             Err(e) if e.raw_os_error() == Some(125) => {
-//!                 canceled += 1
-//!             }
-//!             Ok(_) => {}
-//!             other => panic!("error: {:?}", other),
-//!         }
+//!         completion.wait()?;
 //!     }
 //!
 //!     Ok(())
@@ -106,14 +77,8 @@
 )]
 #![deny(
     // over time, consider enabling the following commented-out lints:
-    // clippy::missing_const_for_fn,
     // clippy::missing_docs_in_private_items,
-    // clippy::module_name_repetitions,
-    // clippy::multiple_crate_versions,
-    // clippy::unimplemented,
-    // clippy::wildcard_enum_match_arm,
     // clippy::else_if_without_else,
-    // clippy::float_arithmetic,
     // clippy::indexing_slicing,
     clippy::cast_lossless,
     clippy::cast_possible_truncation,
@@ -124,13 +89,14 @@
     clippy::decimal_literal_representation,
     clippy::doc_markdown,
     clippy::empty_enum,
-    clippy::expl_impl_clone_on_copy,
     clippy::explicit_into_iter_loop,
     clippy::explicit_iter_loop,
+    clippy::expl_impl_clone_on_copy,
     clippy::fallible_impl_from,
     clippy::filter_map,
     clippy::filter_map_next,
     clippy::find_map,
+    clippy::float_arithmetic,
     clippy::get_unwrap,
     clippy::if_not_else,
     clippy::inline_always,
@@ -140,6 +106,9 @@
     clippy::match_same_arms,
     clippy::maybe_infinite_iter,
     clippy::mem_forget,
+    clippy::missing_const_for_fn,
+    clippy::module_name_repetitions,
+    clippy::multiple_crate_versions,
     clippy::multiple_inherent_impl,
     clippy::mut_mut,
     clippy::needless_borrow,
@@ -162,9 +131,11 @@
     clippy::string_add_assign,
     clippy::type_repetition_in_bounds,
     clippy::unicode_not_nfc,
+    clippy::unimplemented,
     clippy::unseparated_literal_suffix,
     clippy::used_underscore_binding,
     clippy::wildcard_dependencies,
+    clippy::wildcard_enum_match_arm,
     clippy::wrong_pub_self_convention,
 )]
 
@@ -180,7 +151,7 @@ pub use io_uring::{Config, Ordering, Uring as Rio};
 
 pub use completion::Completion;
 
-use completion::{pair, CompletionFiller};
+use completion::{pair, Filler};
 
 /// Create a new IO system.
 pub fn new() -> io::Result<Rio> {
@@ -196,16 +167,19 @@ mod use_cases {
     }
 
     #[test]
+    #[ignore]
     fn cp() {
         todo!()
     }
 
     #[test]
+    #[ignore]
     fn logger() {
         todo!()
     }
 
     #[test]
+    #[ignore]
     fn sled_like() {
         todo!()
     }

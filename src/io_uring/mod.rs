@@ -14,7 +14,7 @@ use std::{
     },
 };
 
-use super::{pair, Completion, CompletionFiller};
+use super::{pair, Completion, Filler};
 
 mod config;
 mod constants;
@@ -216,10 +216,7 @@ pub struct Cq {
     cqes: &'static mut [io_uring_cqe],
     ring_ptr: *const libc::c_void,
     ring_sz: usize,
-    pending: HashMap<
-        u64,
-        CompletionFiller<io::Result<io_uring_cqe>>,
-    >,
+    pending: HashMap<u64, Filler<io::Result<io_uring_cqe>>>,
 }
 
 #[allow(unsafe_code)]

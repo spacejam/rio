@@ -36,16 +36,16 @@ pub struct Completion<'a, C> {
 
 /// The completer side of the Future
 #[derive(Debug)]
-pub struct CompletionFiller<C> {
+pub struct Filler<C> {
     mu: Arc<Mutex<CompletionState<C>>>,
     cv: Arc<Condvar>,
 }
 
-/// Create a new `CompletionFiller` and the `Completion`
+/// Create a new `Filler` and the `Completion`
 /// that will be filled by its completion.
 pub fn pair<'a, C>(
     cq: Arc<Mutex<Cq>>,
-) -> (Completion<'a, C>, CompletionFiller<C>) {
+) -> (Completion<'a, C>, Filler<C>) {
     let mu =
         Arc::new(Mutex::new(CompletionState::default()));
     let cv = Arc::new(Condvar::new());
@@ -55,14 +55,14 @@ pub fn pair<'a, C>(
         cv: cv.clone(),
         cq,
     };
-    let filler = CompletionFiller { mu, cv };
+    let filler = Filler { mu, cv };
 
     (future, filler)
 }
 
 impl<'a, C> Completion<'a, C> {
     /// Block on the `Completion`'s completion
-    /// or dropping of the `CompletionFiller`
+    /// or dropping of the `Filler`
     pub fn wait(self) -> C {
         self.wait_inner().unwrap()
     }
@@ -134,7 +134,7 @@ impl<'a, C> Future for Completion<'a, C> {
     }
 }
 
-impl<C> CompletionFiller<C> {
+impl<C> Filler<C> {
     /// Complete the `Completion`
     pub fn fill(self, inner: C) {
         let mut state = self.mu.lock().unwrap();
