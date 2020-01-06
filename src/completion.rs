@@ -146,6 +146,6 @@ impl<C> CompletionFiller<C> {
         state.item = Some(inner);
         state.done = true;
 
-        let _notified = self.cv.notify_all();
+        self.cv.notify_all();
     }
 }
