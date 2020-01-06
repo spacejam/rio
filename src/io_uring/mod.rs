@@ -318,10 +318,10 @@ fn uring_mmap(
 }
 
 impl io_uring_sqe {
-    fn prep_rw(
+    fn prep_rw<F: AsRawFd>(
         &mut self,
         opcode: u8,
-        file: &File,
+        file: &F,
         addr: *mut libc::c_void,
         len: usize,
         off: u64,
@@ -544,9 +544,13 @@ impl Uring {
     /// `io_uring_cqe`'s `res` field to see if a
     /// short write happened. This will contain
     /// the number of bytes written.
-    pub fn write_at<'uring, 'file, 'buf>(
+    ///
+    /// Note that the file argument is generic
+    /// for anything that supports AsRawFd:
+    /// sockets, files, etc...
+    pub fn write_at<'uring, 'file, 'buf, F>(
         &'uring self,
-        file: &'file File,
+        file: &'file F,
         iov: &'buf IoSlice<'buf>,
         at: u64,
     ) -> io::Result<
@@ -556,6 +560,7 @@ impl Uring {
         'file: 'uring + 'buf,
         'buf: 'uring + 'file,
         'uring: 'buf + 'file,
+        F: AsRawFd,
     {
         self.write_at_ordered(file, iov, at, Ordering::None)
     }
@@ -579,9 +584,13 @@ impl Uring {
     /// * `Ordering::Drain` causes all previously
     ///   submitted operations to complete before
     ///   this one begins.
-    pub fn write_at_ordered<'uring, 'file, 'buf>(
+    ///
+    /// Note that the file argument is generic
+    /// for anything that supports AsRawFd:
+    /// sockets, files, etc...
+    pub fn write_at_ordered<'uring, 'file, 'buf, F>(
         &'uring self,
-        file: &'file File,
+        file: &'file F,
         iov: &'buf IoSlice<'buf>,
         at: u64,
         ordering: Ordering,
@@ -592,6 +601,7 @@ impl Uring {
         'file: 'uring + 'buf,
         'buf: 'uring + 'file,
         'uring: 'buf + 'file,
+        F: AsRawFd,
     {
         let iov_ptr: *const IoSlice<'buf> = iov;
         self.with_sqe(|sqe| {
@@ -611,9 +621,13 @@ impl Uring {
     /// `io_uring_cqe`'s `res` field to see if a
     /// short read happened. This will contain
     /// the number of bytes read.
-    pub fn read_at<'uring, 'file, 'buf>(
+    ///
+    /// Note that the file argument is generic
+    /// for anything that supports AsRawFd:
+    /// sockets, files, etc...
+    pub fn read_at<'uring, 'file, 'buf, F>(
         &'uring self,
-        file: &'file File,
+        file: &'file F,
         iov: &'buf mut IoSliceMut<'buf>,
         at: u64,
     ) -> io::Result<
@@ -623,6 +637,7 @@ impl Uring {
         'file: 'uring + 'buf,
         'buf: 'uring + 'file,
         'uring: 'buf + 'file,
+        F: AsRawFd,
     {
         self.read_at_ordered(file, iov, at, Ordering::None)
     }
@@ -644,9 +659,13 @@ impl Uring {
     /// * `Ordering::Drain` causes all previously
     ///   submitted operations to complete before
     ///   this one begins.
-    pub fn read_at_ordered<'uring, 'file, 'buf>(
+    ///
+    /// Note that the file argument is generic
+    /// for anything that supports AsRawFd:
+    /// sockets, files, etc...
+    pub fn read_at_ordered<'uring, 'file, 'buf, F>(
         &'uring self,
-        file: &'file File,
+        file: &'file F,
         iov: &'buf mut IoSliceMut<'buf>,
         at: u64,
         ordering: Ordering,
@@ -657,6 +676,7 @@ impl Uring {
         'file: 'uring + 'buf,
         'buf: 'uring + 'file,
         'uring: 'buf + 'file,
+        F: AsRawFd,
     {
         let iov_ptr: *const IoSliceMut<'buf> = iov;
         self.with_sqe(|sqe| {
