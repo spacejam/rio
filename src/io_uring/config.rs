@@ -29,6 +29,7 @@ impl Default for Config {
 }
 
 impl Config {
+    /// Start the `Rio` system.
     pub fn start(mut self) -> io::Result<Uring> {
         let mut params =
             if let Some(params) = self.raw_params.take() {

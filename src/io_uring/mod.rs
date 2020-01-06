@@ -331,7 +331,10 @@ impl io_uring_sqe {
         self.apply_order(ordering);
     }
 
-    pub fn apply_order(&mut self, ordering: Ordering) {
+    pub(crate) fn apply_order(
+        &mut self,
+        ordering: Ordering,
+    ) {
         match ordering {
             Ordering::None => {}
             Ordering::Link => {
