@@ -50,10 +50,29 @@ impl Drop for Uring {
     }
 }
 
+/// Specify whether `io_uring` should
+/// run operations in a specific order.
+/// By default, it will run independent
+/// operations in any order it can to
+/// speed things up. This can be constrained
+/// by either submitting chains of `Link`
+/// events, which are executed one after the other,
+/// or by specifying the `Drain` ordering
+/// which causes all previously submitted operations
+/// to complete first.
 #[derive(Clone, Debug, Copy)]
 pub enum Ordering {
+    /// No ordering requirements
     None,
+    /// `Ordering::Link` causes the next
+    /// submitted operation to wait until
+    /// this one finishes. Useful for
+    /// things like file copy, fsync-after-write,
+    /// or proxies.
     Link,
+    /// `Ordering::Drain` causes all previously
+    /// submitted operations to complete before
+    /// this one begins.
     Drain,
 }
 

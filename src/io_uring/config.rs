@@ -6,12 +6,32 @@ use std::{
 
 use super::*;
 
+/// Configuration for the underlying `io_uring` system.
 #[derive(Clone, Debug, Copy)]
 pub struct Config {
+    /// The number of entries in the submission queue.
+    /// The completion queue size may be specified by
+    /// using `raw_params` instead. By default, the
+    /// kernel will choose a completion queue that is 2x
+    /// the submission queue's size.
     pub depth: usize,
+    /// Enable `SQPOLL` mode, which spawns a kernel
+    /// thread that polls for submissions without
+    /// needing to block as often to submit.
+    ///
+    /// This is a privileged operation, and
+    /// will cause `start` to fail if run
+    /// by a non-privileged user.
     pub sq_poll: bool,
-    pub io_poll: bool,
+    /// Specify a particular CPU to pin the
+    /// `SQPOLL` thread onto.
     pub sq_poll_affinity: u32,
+    /// Specify that the user will directly
+    /// poll the hardware for operation completion
+    /// rather than using the completion queue.
+    ///
+    /// CURRENTLY UNSUPPORTED
+    pub io_poll: bool,
     /// setting `raw_params` overrides everything else
     pub raw_params: Option<io_uring_params>,
 }
