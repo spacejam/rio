@@ -196,7 +196,10 @@ pub struct Cq {
     cqes: &'static mut [io_uring_cqe],
     ring_ptr: *const libc::c_void,
     ring_sz: usize,
-    pending: HashMap<u64, CompletionFiller<io::Result<()>>>,
+    pending: HashMap<
+        u64,
+        CompletionFiller<io::Result<io_uring_cqe>>,
+    >,
 }
 
 #[allow(unsafe_code)]
@@ -222,10 +225,11 @@ impl Cq {
                 cq.pending.remove(&id).expect(
                     "expect a queued completion filler",
                 );
+
             let result = if res < 0 {
                 Err(io::Error::from_raw_os_error(-1 * res))
             } else {
-                Ok(())
+                Ok(*cqe)
             };
 
             completion_filler.fill(result);
@@ -349,7 +353,9 @@ impl Uring {
     pub fn fsync<'uring, 'file>(
         &'uring self,
         file: &'file File,
-    ) -> io::Result<Completion<'file, io::Result<()>>>
+    ) -> io::Result<
+        Completion<'file, io::Result<io_uring_cqe>>,
+    >
     where
         'file: 'uring,
         'uring: 'file,
@@ -361,7 +367,9 @@ impl Uring {
         &'uring self,
         file: &'file File,
         ordering: Ordering,
-    ) -> io::Result<Completion<'file, io::Result<()>>>
+    ) -> io::Result<
+        Completion<'file, io::Result<io_uring_cqe>>,
+    >
     where
         'file: 'uring,
         'uring: 'file,
@@ -381,7 +389,9 @@ impl Uring {
     pub fn fdatasync<'uring, 'file>(
         &'uring self,
         file: &'file File,
-    ) -> io::Result<Completion<'file, io::Result<()>>>
+    ) -> io::Result<
+        Completion<'file, io::Result<io_uring_cqe>>,
+    >
     where
         'file: 'uring,
         'uring: 'file,
@@ -393,7 +403,9 @@ impl Uring {
         &'uring self,
         file: &'file File,
         ordering: Ordering,
-    ) -> io::Result<Completion<'file, io::Result<()>>>
+    ) -> io::Result<
+        Completion<'file, io::Result<io_uring_cqe>>,
+    >
     where
         'file: 'uring,
         'uring: 'file,
@@ -416,7 +428,9 @@ impl Uring {
         file: &'file File,
         iov: &'buf IoSlice<'buf>,
         at: u64,
-    ) -> io::Result<Completion<'buf, io::Result<()>>>
+    ) -> io::Result<
+        Completion<'buf, io::Result<io_uring_cqe>>,
+    >
     where
         'file: 'uring + 'buf,
         'buf: 'uring + 'file,
@@ -431,7 +445,9 @@ impl Uring {
         iov: &'buf IoSlice<'buf>,
         at: u64,
         ordering: Ordering,
-    ) -> io::Result<Completion<'buf, io::Result<()>>>
+    ) -> io::Result<
+        Completion<'buf, io::Result<io_uring_cqe>>,
+    >
     where
         'file: 'uring + 'buf,
         'buf: 'uring + 'file,
@@ -454,7 +470,9 @@ impl Uring {
         file: &'file File,
         iov: &'buf mut IoSliceMut<'buf>,
         at: u64,
-    ) -> io::Result<Completion<'buf, io::Result<()>>>
+    ) -> io::Result<
+        Completion<'buf, io::Result<io_uring_cqe>>,
+    >
     where
         'file: 'uring + 'buf,
         'buf: 'uring + 'file,
@@ -469,7 +487,9 @@ impl Uring {
         iov: &'buf mut IoSliceMut<'buf>,
         at: u64,
         ordering: Ordering,
-    ) -> io::Result<Completion<'buf, io::Result<()>>>
+    ) -> io::Result<
+        Completion<'buf, io::Result<io_uring_cqe>>,
+    >
     where
         'file: 'uring + 'buf,
         'buf: 'uring + 'file,
@@ -490,7 +510,9 @@ impl Uring {
     fn with_sqe<'uring, 'buf, F>(
         &'uring self,
         f: F,
-    ) -> io::Result<Completion<'buf, io::Result<()>>>
+    ) -> io::Result<
+        Completion<'buf, io::Result<io_uring_cqe>>,
+    >
     where
         'buf: 'uring,
         'uring: 'buf,
