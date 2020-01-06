@@ -1,8 +1,69 @@
 //! A steamy river of uring. Fast IO with a API that doesn't make me eyes bleed. GPL-666'd.
 //!
+//! io_uring is going to change everything. It will speed up your
+//! disk usage by like 300%. Go ahead, run the `O_DIRECT` example
+//! and compare that to using a threadpool or any other async shit
+//! you want. It's not gonna come close!
+//!
+//! Starting in linux 5.5, it also has support for tcp accept.
+//! This is gonna fucking shred everything out there!!!
+//!
+//! But there's a few snags. Mainly, it's a little misuse-prone.
+//! But Rust is pretty nice for specifying proofs about
+//! memory usage in the type system. And we don't even have
+//! to get too squirley. Check out the `write_at` implementation,
+//! for example. It just says that the Completion, the underlying
+//! uring, the file being used, the buffer being used, etc...
+//! will all be in scope at the same time while the Completion
+//! is in-use.
+//!
+//! This library aims to be misuse-resistant.
+//! Most of the other io_uring libraries make
+//! it really easy to blow ur ass off with
+//! use-after-frees. `rio` uses a ton of
+//! lifetime magic to make this stuff fail
+//! to compile. Also, if a `Completion`
+//! that was pinned to the lifetime of a uring
+//! and backing buffer is dropped, it
+//! waits for its backing operation to complete
+//! before returning from Drop, to further
+//! prevent use-after-frees. use-after-frees
+//! can SUCK MY ASS!!!
+//!
 //! # Examples
 //!
-//! # Really shines with O_DIRECT:
+//! This shit won't compile:
+//!
+//! ```compile_fail
+//! let rio = rio::new().unwrap();
+//! let file = std::fs::File::open("fuck_you_use_after_free_you_suck").unwrap();
+//! let out_buf = vec![42; 666];
+//! let out_io_slice = std::io::IoSlice::new(&out_buf);
+//!
+//! let completion = rio.write_at(&file, &out_io_slice, 0).unwrap();
+//!
+//! // At this very moment, the kernel has a pointer to that there slice.
+//! // It also has the raw file descriptor of the file.
+//! // It's fixin' to write the data from that memory into the file.
+//! // But if we freed the shit, it would get megafucked,
+//! // and the kernel would write potentially scandalous data
+//! // into the file instead.
+//!
+//! // any of the next 3 lines would cause compilation to fail...
+//! drop(out_io_slice);
+//! drop(file);
+//! drop(rio);
+//!
+//! // this is both a Future and a normal blocking promise thing.
+//! // If you're using async, just call `.await` on it instead
+//! // of `.wait()`
+//! completion.wait();
+//!
+//! // now it's safe to drop that shit, whatever...
+//! ```
+//!
+//!
+//! Really shines with O_DIRECT:
 //!
 //! ```no_run
 //! use std::{

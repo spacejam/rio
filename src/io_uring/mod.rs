@@ -557,7 +557,7 @@ impl Uring {
         'buf: 'uring + 'file,
         'uring: 'buf + 'file,
     {
-        self.write_ordered(file, iov, at, Ordering::None)
+        self.write_at_ordered(file, iov, at, Ordering::None)
     }
 
     /// Writes data at the provided `IoSlice` using
@@ -579,7 +579,7 @@ impl Uring {
     /// * `Ordering::Drain` causes all previously
     ///   submitted operations to complete before
     ///   this one begins.
-    pub fn write_ordered<'uring, 'file, 'buf>(
+    pub fn write_at_ordered<'uring, 'file, 'buf>(
         &'uring self,
         file: &'file File,
         iov: &'buf IoSlice<'buf>,
@@ -624,7 +624,7 @@ impl Uring {
         'buf: 'uring + 'file,
         'uring: 'buf + 'file,
     {
-        self.read_ordered(file, iov, at, Ordering::None)
+        self.read_at_ordered(file, iov, at, Ordering::None)
     }
 
     /// Reads data into the provided `IoSliceMut` using
@@ -644,7 +644,7 @@ impl Uring {
     /// * `Ordering::Drain` causes all previously
     ///   submitted operations to complete before
     ///   this one begins.
-    pub fn read_ordered<'uring, 'file, 'buf>(
+    pub fn read_at_ordered<'uring, 'file, 'buf>(
         &'uring self,
         file: &'file File,
         iov: &'buf mut IoSliceMut<'buf>,
