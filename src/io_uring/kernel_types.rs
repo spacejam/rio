@@ -56,7 +56,10 @@ pub union io_uring_sqe__bindgen_ty_1 {
 
 impl Default for io_uring_sqe__bindgen_ty_1 {
     fn default() -> io_uring_sqe__bindgen_ty_1 {
-        unsafe { std::mem::zeroed() }
+        #[allow(unsafe_code)]
+        unsafe {
+            std::mem::zeroed()
+        }
     }
 }
 
@@ -88,7 +91,10 @@ impl fmt::Debug for io_uring_sqe__bindgen_ty_2 {
 
 impl Default for io_uring_sqe__bindgen_ty_2 {
     fn default() -> io_uring_sqe__bindgen_ty_2 {
-        unsafe { std::mem::zeroed() }
+        #[allow(unsafe_code)]
+        unsafe {
+            std::mem::zeroed()
+        }
     }
 }
 
