@@ -380,7 +380,7 @@ impl Uring {
     ///
     /// You usually don't want to do this without
     /// linking to a previous write, because
-    /// io_uring will execute operations out-of-order.
+    /// `io_uring` will execute operations out-of-order.
     /// Without setting a `Link` ordering on the previous
     /// operation, or using `fsync_ordered` with
     /// the `Drain` ordering, causing all previous
