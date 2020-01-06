@@ -3,6 +3,7 @@ use std::{
     convert::TryFrom,
     fs::File,
     io::{self, IoSlice, IoSliceMut},
+    ops::Neg,
     os::unix::io::AsRawFd,
     sync::{
         atomic::{
@@ -246,7 +247,7 @@ impl Cq {
                 );
 
             let result = if res < 0 {
-                Err(io::Error::from_raw_os_error(-1 * res))
+                Err(io::Error::from_raw_os_error(res.neg()))
             } else {
                 Ok(*cqe)
             };
