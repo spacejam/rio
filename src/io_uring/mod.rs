@@ -356,12 +356,8 @@ impl io_uring_sqe {
     ) {
         match ordering {
             Ordering::None => {}
-            Ordering::Link => {
-                self.flags = self.flags | IOSQE_IO_LINK
-            }
-            Ordering::Drain => {
-                self.flags = self.flags | IOSQE_IO_DRAIN
-            }
+            Ordering::Link => self.flags |= IOSQE_IO_LINK,
+            Ordering::Drain => self.flags |= IOSQE_IO_DRAIN,
         }
     }
 }
@@ -541,7 +537,7 @@ impl Uring {
                 0,
                 ordering,
             );
-            sqe.flags = sqe.flags | IORING_FSYNC_DATASYNC;
+            sqe.flags |= IORING_FSYNC_DATASYNC;
         })
     }
 
