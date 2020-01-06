@@ -6,7 +6,7 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-use super::{io_uring::Cq, FastLock};
+use super::io_uring::Cq;
 
 #[derive(Debug)]
 struct CompletionState<C> {
@@ -31,7 +31,7 @@ pub struct Completion<'a, C> {
     lifetime: PhantomData<&'a ()>,
     mu: Arc<Mutex<CompletionState<C>>>,
     cv: Arc<Condvar>,
-    cq: Arc<FastLock<Cq>>,
+    cq: Arc<Mutex<Cq>>,
 }
 
 /// The completer side of the Future
@@ -44,7 +44,7 @@ pub struct CompletionFiller<C> {
 /// Create a new `CompletionFiller` and the `Completion`
 /// that will be filled by its completion.
 pub fn pair<'a, C>(
-    cq: Arc<FastLock<Cq>>,
+    cq: Arc<Mutex<Cq>>,
 ) -> (Completion<'a, C>, CompletionFiller<C>) {
     let mu =
         Arc::new(Mutex::new(CompletionState::default()));
@@ -81,7 +81,7 @@ impl<'a, C> Completion<'a, C> {
 
             drop(inner);
 
-            if let Some(mut cq) = self.cq.try_lock() {
+            if let Ok(mut cq) = self.cq.try_lock() {
                 cq.reap_ready_cqes();
             }
 

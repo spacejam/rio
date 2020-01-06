@@ -14,14 +14,14 @@ pub(crate) fn setup(
     entries: c_uint,
     p: *mut io_uring_params,
 ) -> io::Result<c_int> {
+    assert!(
+        (1..=4096).contains(&entries),
+        "entries must be between 1 and 4096 (inclusive)"
+    );
     assert_eq!(
         entries.count_ones(),
         1,
         "entries must be a power of 2"
-    );
-    assert!(
-        (1..=4096).contains(&entries),
-        "entries must be between 1 and 4096 (inclusive)"
     );
     let ret = unsafe {
         syscall(SETUP, entries as c_long, p as c_long)

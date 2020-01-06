@@ -103,12 +103,35 @@ pub use io_uring::{Config, Ordering, Uring as Rio};
 
 pub use completion::Completion;
 
-use {
-    completion::{pair, CompletionFiller},
-    fastlock::FastLock,
-};
+use completion::{pair, CompletionFiller};
 
 /// Create a new IO system.
 pub fn new() -> io::Result<Rio> {
     Config::default().start()
+}
+
+#[cfg(test)]
+mod use_cases {
+    use super::new;
+
+    #[test]
+    #[ignore]
+    fn broadcast() {
+        todo!()
+    }
+
+    #[test]
+    fn cp() {
+        todo!()
+    }
+
+    #[test]
+    fn logger() {
+        todo!()
+    }
+
+    #[test]
+    fn sled_like() {
+        todo!()
+    }
 }

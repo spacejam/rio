@@ -9,11 +9,11 @@ use std::{
             AtomicU32,
             Ordering::{Acquire, Release},
         },
-        Arc,
+        Arc, Mutex,
     },
 };
 
-use super::{pair, Completion, CompletionFiller, FastLock};
+use super::{pair, Completion, CompletionFiller};
 
 mod config;
 mod constants;
@@ -33,11 +33,21 @@ pub use config::Config;
 /// Nice bindings for the shiny new linux IO system
 #[derive(Debug)]
 pub struct Uring {
-    sq: Sq,
-    cq: Arc<FastLock<Cq>>,
+    sq: Mutex<Sq>,
+    cq: Arc<Mutex<Cq>>,
     flags: u32,
     ring_fd: i32,
-    max_id: u64,
+}
+
+impl Drop for Uring {
+    fn drop(&mut self) {
+        if let Err(e) = self.submit_all() {
+            eprintln!(
+                "failed to submit pending items: {:?}",
+                e
+            );
+        }
+    }
 }
 
 pub enum Ordering {
@@ -62,6 +72,98 @@ pub struct Sq {
     ring_ptr: *const libc::c_void,
     ring_sz: usize,
     sqes_sz: usize,
+    max_id: u64,
+}
+
+impl Sq {
+    fn try_get_sqe(
+        &mut self,
+        ring_flags: u32,
+    ) -> Option<&mut io_uring_sqe> {
+        let next = self.sqe_tail + 1;
+
+        let head =
+            if (ring_flags & IORING_SETUP_SQPOLL) == 0 {
+                // non-polling mode
+                self.sqe_head
+            } else {
+                // polling mode
+                self.khead.load(Acquire)
+            };
+
+        if next - head <= *self.kring_entries {
+            let idx = self.sqe_tail & self.kring_mask;
+            let sqe = &mut self.sqes[idx as usize];
+            self.sqe_tail = next;
+            self.max_id += 1;
+            let id = self.max_id;
+            sqe.user_data = id;
+
+            Some(sqe)
+        } else {
+            None
+        }
+    }
+
+    // sets sq.array to point to current sq.sqe_head
+    fn flush(&mut self) -> u32 {
+        let mask: u32 = *self.kring_mask;
+        if self.sqe_head == self.sqe_tail {
+            return 0;
+        }
+
+        let mut ktail = self.ktail.load(Acquire);
+        let to_submit = self.sqe_tail - self.sqe_head;
+        for _ in 0..to_submit {
+            let index = ktail & mask;
+            self.array[index as usize] =
+                self.sqe_head & mask;
+            ktail += 1;
+            self.sqe_head += 1;
+        }
+
+        let swapped = self.ktail.swap(ktail, Release);
+
+        assert_eq!(swapped, ktail - to_submit);
+
+        to_submit
+    }
+
+    fn submit_all(
+        &mut self,
+        ring_flags: u32,
+        ring_fd: i32,
+    ) -> io::Result<()> {
+        if ring_flags & IORING_SETUP_SQPOLL != 0 {
+            // skip submission if we don't need to do it
+            if self.kflags & IORING_SQ_NEED_WAKEUP != 0 {
+                let to_submit =
+                    self.sqe_tail - self.sqe_head;
+                enter(
+                    ring_fd,
+                    to_submit,
+                    0,
+                    IORING_ENTER_SQ_WAKEUP,
+                    std::ptr::null_mut(),
+                )?;
+            }
+        } else {
+            // TODO for polling, keep flags at 0
+            let flags = IORING_ENTER_GETEVENTS;
+            let mut submitted = self.flush();
+            while submitted > 0 {
+                let ret = enter(
+                    ring_fd,
+                    submitted,
+                    0,
+                    flags,
+                    std::ptr::null_mut(),
+                )?;
+                submitted -= u32::try_from(ret).unwrap();
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Drop for Sq {
@@ -145,7 +247,7 @@ impl Drop for Cq {
     }
 }
 
-fn reaper(ring_fd: i32, cq_mu: Arc<FastLock<Cq>>) {
+fn reaper(ring_fd: i32, cq_mu: Arc<Mutex<Cq>>) {
     fn block_for_cqe(ring_fd: i32) -> io::Result<()> {
         let flags = IORING_ENTER_GETEVENTS;
         let submit = 0;
@@ -166,7 +268,7 @@ fn reaper(ring_fd: i32, cq_mu: Arc<FastLock<Cq>>) {
         if let Err(e) = block_for_cqe(ring_fd) {
             panic!("error in cqe reaper: {:?}", e);
         } else {
-            let mut cq = cq_mu.spin_lock();
+            let mut cq = cq_mu.lock().unwrap();
             cq.reap_ready_cqes();
         }
     }
@@ -235,213 +337,188 @@ impl io_uring_sqe {
 }
 
 impl Uring {
-    pub fn fsync<'s, 'file: 's>(
-        &'s mut self,
+    pub fn submit_all(&self) -> io::Result<()> {
+        let mut sq = self.sq.lock().unwrap();
+        sq.submit_all(self.flags, self.ring_fd)
+    }
+
+    pub fn fsync<'uring, 'file>(
+        &'uring self,
         file: &'file File,
-    ) -> io::Result<Completion<'file, io::Result<()>>> {
+    ) -> io::Result<Completion<'file, io::Result<()>>>
+    where
+        'file: 'uring,
+        'uring: 'file,
+    {
         self.fsync_ordered(file, Ordering::None)
     }
 
-    pub fn fsync_ordered<'s, 'file: 's>(
-        &'s mut self,
+    pub fn fsync_ordered<'uring, 'file>(
+        &'uring self,
         file: &'file File,
         ordering: Ordering,
-    ) -> io::Result<Completion<'file, io::Result<()>>> {
-        let (completion, sqe) = self.get_sqe()?;
-        sqe.prep_rw(
-            IORING_OP_FSYNC,
-            file,
-            std::ptr::null_mut(),
-            0,
-            0,
-            ordering,
-        );
-        Ok(completion)
+    ) -> io::Result<Completion<'file, io::Result<()>>>
+    where
+        'file: 'uring,
+        'uring: 'file,
+    {
+        self.with_sqe(|sqe| {
+            sqe.prep_rw(
+                IORING_OP_FSYNC,
+                file,
+                std::ptr::null_mut(),
+                0,
+                0,
+                ordering,
+            )
+        })
     }
 
-    pub fn fdatasync(
-        &mut self,
-        file: &File,
-    ) -> io::Result<Completion<io::Result<()>>> {
+    pub fn fdatasync<'uring, 'file>(
+        &'uring self,
+        file: &'file File,
+    ) -> io::Result<Completion<'file, io::Result<()>>>
+    where
+        'file: 'uring,
+        'uring: 'file,
+    {
         self.fdatasync_ordered(file, Ordering::None)
     }
 
-    pub fn fdatasync_ordered(
-        &mut self,
-        file: &File,
+    pub fn fdatasync_ordered<'uring, 'file>(
+        &'uring self,
+        file: &'file File,
         ordering: Ordering,
-    ) -> io::Result<Completion<io::Result<()>>> {
-        let (completion, sqe) = self.get_sqe()?;
-        sqe.prep_rw(
-            IORING_OP_FSYNC,
-            file,
-            std::ptr::null_mut(),
-            0,
-            0,
-            ordering,
-        );
-        sqe.flags = sqe.flags | IORING_FSYNC_DATASYNC;
-        Ok(completion)
+    ) -> io::Result<Completion<'file, io::Result<()>>>
+    where
+        'file: 'uring,
+        'uring: 'file,
+    {
+        self.with_sqe(|mut sqe| {
+            sqe.prep_rw(
+                IORING_OP_FSYNC,
+                file,
+                std::ptr::null_mut(),
+                0,
+                0,
+                ordering,
+            );
+            sqe.flags = sqe.flags | IORING_FSYNC_DATASYNC;
+        })
     }
 
-    pub fn write(
-        &mut self,
-        file: &File,
-        iov: &IoSlice,
+    pub fn write<'uring, 'file, 'buf>(
+        &'uring self,
+        file: &'file File,
+        iov: &'buf IoSlice,
         at: u64,
-    ) -> io::Result<Completion<io::Result<()>>> {
+    ) -> io::Result<Completion<'buf, io::Result<()>>>
+    where
+        'file: 'uring + 'buf,
+        'buf: 'uring + 'file,
+        'uring: 'buf + 'file,
+    {
         self.write_ordered(file, iov, at, Ordering::None)
     }
 
-    pub fn write_ordered(
-        &mut self,
-        file: &File,
-        iov: &IoSlice,
+    pub fn write_ordered<'uring, 'file, 'buf>(
+        &'uring self,
+        file: &'file File,
+        iov: &'buf IoSlice,
         at: u64,
         ordering: Ordering,
-    ) -> io::Result<Completion<io::Result<()>>> {
-        let (completion, sqe) = self.get_sqe()?;
-        sqe.prep_rw(
-            IORING_OP_WRITEV,
-            file,
-            iov as *const _ as _,
-            1,
-            at,
-            ordering,
-        );
-        Ok(completion)
+    ) -> io::Result<Completion<'buf, io::Result<()>>>
+    where
+        'file: 'uring + 'buf,
+        'buf: 'uring + 'file,
+        'uring: 'buf + 'file,
+    {
+        self.with_sqe(|sqe| {
+            sqe.prep_rw(
+                IORING_OP_WRITEV,
+                file,
+                iov as *const _ as _,
+                1,
+                at,
+                ordering,
+            )
+        })
     }
 
-    pub fn read(
-        &mut self,
-        file: &File,
-        iov: &mut IoSliceMut,
+    pub fn read<'uring, 'file, 'buf>(
+        &'uring self,
+        file: &'file File,
+        iov: &'buf mut IoSliceMut,
         at: u64,
-    ) -> io::Result<Completion<io::Result<()>>> {
+    ) -> io::Result<Completion<'buf, io::Result<()>>>
+    where
+        'file: 'uring + 'buf,
+        'buf: 'uring + 'file,
+        'uring: 'buf + 'file,
+    {
         self.read_ordered(file, iov, at, Ordering::None)
     }
 
-    pub fn read_ordered(
-        &mut self,
-        file: &File,
-        iov: &mut IoSliceMut,
+    pub fn read_ordered<'uring, 'file, 'buf>(
+        &'uring self,
+        file: &'file File,
+        iov: &'buf mut IoSliceMut,
         at: u64,
         ordering: Ordering,
-    ) -> io::Result<Completion<io::Result<()>>> {
-        let (completion, sqe) = self.get_sqe()?;
-        sqe.prep_rw(
-            IORING_OP_READV,
-            file,
-            iov as *mut _ as _,
-            1,
-            at,
-            ordering,
-        );
+    ) -> io::Result<Completion<'buf, io::Result<()>>>
+    where
+        'file: 'uring + 'buf,
+        'buf: 'uring + 'file,
+        'uring: 'buf + 'file,
+    {
+        self.with_sqe(|sqe| {
+            sqe.prep_rw(
+                IORING_OP_READV,
+                file,
+                iov as *mut _ as _,
+                1,
+                at,
+                ordering,
+            )
+        })
+    }
+
+    fn with_sqe<'uring, 'buf, F>(
+        &'uring self,
+        f: F,
+    ) -> io::Result<Completion<'buf, io::Result<()>>>
+    where
+        'buf: 'uring,
+        'uring: 'buf,
+        F: FnOnce(&mut io_uring_sqe),
+    {
+        let (completion, filler) = pair(self.cq.clone());
+
+        let mut sq = self.sq.lock().unwrap();
+        let sqe = loop {
+            if let Some(sqe) = sq.try_get_sqe(self.flags) {
+                break sqe;
+            } else {
+                drop(sq);
+                self.submit_all()?;
+                self.reap_ready_cqes();
+                sq = self.sq.lock().unwrap();
+            };
+        };
+
+        f(sqe);
+
+        let mut cq = self.cq.lock().unwrap();
+        assert!(cq
+            .pending
+            .insert(sqe.user_data, filler)
+            .is_none());
+
         Ok(completion)
     }
 
-    fn get_sqe<'s, 'b>(
-        &mut self,
-    ) -> io::Result<(
-        Completion<'b, io::Result<()>>,
-        &mut io_uring_sqe,
-    )> {
-        loop {
-            let next = self.sq.sqe_tail + 1;
-
-            let head = if (self.flags & IORING_SETUP_SQPOLL)
-                == 0
-            {
-                // non-polling mode
-                self.sq.sqe_head
-            } else {
-                // polling mode
-                self.sq.khead.load(Acquire)
-            };
-
-            if next - head <= *self.sq.kring_entries {
-                let idx =
-                    self.sq.sqe_tail & self.sq.kring_mask;
-                let sqe = &mut self.sq.sqes[idx as usize];
-                self.sq.sqe_tail = next;
-                self.max_id += 1;
-                let id = self.max_id;
-                sqe.user_data = id;
-
-                let (completion, filler) =
-                    pair(self.cq.clone());
-
-                let mut cq = self.cq.spin_lock();
-                assert!(cq
-                    .pending
-                    .insert(sqe.user_data, filler)
-                    .is_none());
-
-                return Ok((completion, sqe));
-            } else {
-                self.submit_all()?;
-                self.reap_ready_cqes();
-            }
-        }
-    }
-
-    fn flush(&mut self) -> u32 {
-        let mask: u32 = *self.sq.kring_mask;
-        if self.sq.sqe_head == self.sq.sqe_tail {
-            return 0;
-        }
-
-        let mut ktail = self.sq.ktail.load(Acquire);
-        let to_submit = self.sq.sqe_tail - self.sq.sqe_head;
-        for _ in 0..to_submit {
-            let index = ktail & mask;
-            self.sq.array[index as usize] =
-                self.sq.sqe_head & mask;
-            ktail += 1;
-            self.sq.sqe_head += 1;
-        }
-
-        let swapped = self.sq.ktail.swap(ktail, Release);
-
-        assert_eq!(swapped, ktail - to_submit);
-
-        to_submit
-    }
-
-    pub fn submit_all(&mut self) -> io::Result<()> {
-        if self.flags & IORING_SETUP_SQPOLL != 0 {
-            // skip submission if we don't need to do it
-            if self.sq.kflags & IORING_SQ_NEED_WAKEUP != 0 {
-                let to_submit =
-                    self.sq.sqe_tail - self.sq.sqe_head;
-                enter(
-                    self.ring_fd,
-                    to_submit,
-                    0,
-                    IORING_ENTER_SQ_WAKEUP,
-                    std::ptr::null_mut(),
-                )?;
-            }
-        } else {
-            // TODO for polling, keep flags at 0
-            let flags = IORING_ENTER_GETEVENTS;
-            let mut submitted = self.flush();
-            while submitted > 0 {
-                let ret = enter(
-                    self.ring_fd,
-                    submitted,
-                    0,
-                    flags,
-                    std::ptr::null_mut(),
-                )?;
-                submitted -= u32::try_from(ret).unwrap();
-            }
-        }
-        Ok(())
-    }
-
-    fn reap_ready_cqes(&mut self) -> usize {
-        if let Some(mut cq) = self.cq.try_lock() {
+    fn reap_ready_cqes(&self) -> usize {
+        if let Ok(mut cq) = self.cq.try_lock() {
             cq.reap_ready_cqes()
         } else {
             0

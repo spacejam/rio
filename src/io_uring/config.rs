@@ -1,12 +1,12 @@
 use std::{
     collections::HashMap,
     slice::from_raw_parts_mut,
-    sync::{atomic::AtomicU32, Arc},
+    sync::{atomic::AtomicU32, Arc, Mutex},
 };
 
 use super::*;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Config {
     pub depth: usize,
     pub sq_poll: bool,
@@ -14,6 +14,18 @@ pub struct Config {
     pub sq_poll_affinity: u32,
     /// setting `raw_params` overrides everything else
     pub raw_params: Option<io_uring_params>,
+}
+
+impl Default for Config {
+    fn default() -> Config {
+        Config {
+            depth: 256,
+            sq_poll: false,
+            io_poll: false,
+            sq_poll_affinity: 0,
+            raw_params: None,
+        }
+    }
 }
 
 impl Config {
@@ -112,6 +124,7 @@ impl Config {
                         as _,
                     params.sq_entries as usize,
                 ),
+                max_id: 0,
             }
         };
 
@@ -162,7 +175,7 @@ impl Config {
             }
         };
 
-        let cq_arc = Arc::new(FastLock::new(cq));
+        let cq_arc = Arc::new(Mutex::new(cq));
         let completion_cq_arc = cq_arc.clone();
 
         std::thread::spawn(move || {
@@ -172,9 +185,8 @@ impl Config {
         Ok(Uring {
             flags: params.flags,
             ring_fd,
-            sq,
+            sq: Mutex::new(sq),
             cq: cq_arc,
-            max_id: 0,
         })
     }
 }
