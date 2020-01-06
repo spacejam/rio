@@ -88,6 +88,7 @@ impl Config {
             return Err(io::Error::last_os_error());
         }
 
+        #[allow(unsafe_code)]
         let sq = unsafe {
             Sq {
                 sqe_head: 0,
@@ -145,6 +146,7 @@ impl Config {
             return Err(io::Error::last_os_error());
         }
 
+        #[allow(unsafe_code)]
         let cq = unsafe {
             Cq {
                 ring_ptr: cq_ring_ptr,

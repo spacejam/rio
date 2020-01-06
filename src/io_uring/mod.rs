@@ -167,6 +167,7 @@ impl Sq {
 }
 
 impl Drop for Sq {
+    #[allow(unsafe_code)]
     fn drop(&mut self) {
         unsafe {
             libc::munmap(
@@ -197,6 +198,7 @@ pub struct Cq {
     pending: HashMap<u64, CompletionFiller<io::Result<()>>>,
 }
 
+#[allow(unsafe_code)]
 unsafe impl Send for Cq {}
 
 impl Cq {
@@ -238,6 +240,7 @@ impl Cq {
 
 impl Drop for Cq {
     fn drop(&mut self) {
+        #[allow(unsafe_code)]
         unsafe {
             libc::munmap(
                 self.ring_ptr as *mut libc::c_void,
@@ -279,6 +282,7 @@ fn uring_mmap(
     ring_fd: i32,
     offset: i64,
 ) -> *mut libc::c_void {
+    #[allow(unsafe_code)]
     unsafe {
         libc::mmap(
             std::ptr::null_mut(),
