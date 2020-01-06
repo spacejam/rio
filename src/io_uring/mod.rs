@@ -599,11 +599,12 @@ impl Uring {
         'buf: 'uring + 'file,
         'uring: 'buf + 'file,
     {
+        let iov_ptr: *const IoSlice<'buf> = iov;
         self.with_sqe(|sqe| {
             sqe.prep_rw(
                 IORING_OP_WRITEV,
                 file,
-                iov.as_ptr() as _,
+                iov_ptr as _,
                 1,
                 at,
                 ordering,
@@ -663,11 +664,12 @@ impl Uring {
         'buf: 'uring + 'file,
         'uring: 'buf + 'file,
     {
+        let iov_ptr: *const IoSliceMut<'buf> = iov;
         self.with_sqe(|sqe| {
             sqe.prep_rw(
                 IORING_OP_READV,
                 file,
-                iov.as_mut_ptr() as _,
+                iov_ptr as _,
                 1,
                 at,
                 ordering,
