@@ -6,9 +6,9 @@ use libc::{c_int, c_long, c_uint, syscall};
 
 use super::io_uring_params;
 
-const SETUP: libc::c_long = 425;
-const ENTER: libc::c_long = 426;
-const REGISTER: libc::c_long = 427;
+const SETUP: c_long = 425;
+const ENTER: c_long = 426;
+const REGISTER: c_long = 427;
 
 pub(crate) fn setup(
     entries: c_uint,
