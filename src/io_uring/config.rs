@@ -69,7 +69,10 @@ impl Config {
 
         let params_ptr: *mut io_uring_params = &mut params;
 
-        let ring_fd = setup(self.depth as _, params_ptr)?;
+        let ring_fd = setup(
+            u32::try_from(self.depth).unwrap(),
+            params_ptr,
+        )?;
 
         if ring_fd < 0 {
             return Err(io::Error::last_os_error());
@@ -84,7 +87,7 @@ impl Config {
         let sq_ring_ptr = uring_mmap(
             sq_ring_sz,
             ring_fd,
-            IORING_OFF_SQ_RING as libc::off_t,
+            IORING_OFF_SQ_RING,
         );
 
         if sq_ring_ptr.is_null()
@@ -97,11 +100,9 @@ impl Config {
         let sqes_sz: usize = params.sq_entries as usize
             * std::mem::size_of::<io_uring_sqe>();
 
-        let sqes_ptr: *mut io_uring_sqe = uring_mmap(
-            sqes_sz,
-            ring_fd,
-            IORING_OFF_SQES as libc::off_t,
-        ) as _;
+        let sqes_ptr: *mut io_uring_sqe =
+            uring_mmap(sqes_sz, ring_fd, IORING_OFF_SQES)
+                as _;
 
         if sqes_ptr.is_null()
             || sqes_ptr
@@ -117,7 +118,7 @@ impl Config {
                 sqe_tail: 0,
                 ring_ptr: sq_ring_ptr,
                 ring_sz: sq_ring_sz,
-                sqes_sz: sqes_sz,
+                sqes_sz,
                 sqes: from_raw_parts_mut(
                     sqes_ptr,
                     params.sq_entries as usize,
@@ -159,7 +160,7 @@ impl Config {
         let cq_ring_ptr = uring_mmap(
             cq_ring_sz,
             ring_fd,
-            IORING_OFF_CQ_RING as libc::off_t,
+            IORING_OFF_CQ_RING,
         );
 
         if cq_ring_ptr.is_null()

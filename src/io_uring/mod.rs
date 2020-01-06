@@ -155,21 +155,12 @@ impl Sq {
         ring_flags: u32,
         ring_fd: i32,
     ) -> io::Result<()> {
-        if ring_flags & IORING_SETUP_SQPOLL != 0 {
-            // skip submission if we don't need to do it
-            if self.kflags & IORING_SQ_NEED_WAKEUP != 0 {
-                let to_submit =
-                    self.sqe_tail - self.sqe_head;
-                enter(
-                    ring_fd,
-                    to_submit,
-                    0,
-                    IORING_ENTER_SQ_WAKEUP,
-                    std::ptr::null_mut(),
-                )?;
-            }
-        } else {
+        if ring_flags & IORING_SETUP_SQPOLL == 0 {
+            // non-SQPOLL mode, we need to use
+            // `enter` to submit our SQEs.
+
             // TODO for polling, keep flags at 0
+
             let flags = IORING_ENTER_GETEVENTS;
             let mut submitted = self.flush();
             while submitted > 0 {
@@ -182,6 +173,15 @@ impl Sq {
                 )?;
                 submitted -= u32::try_from(ret).unwrap();
             }
+        } else if self.kflags & IORING_SQ_NEED_WAKEUP != 0 {
+            let to_submit = self.sqe_tail - self.sqe_head;
+            enter(
+                ring_fd,
+                to_submit,
+                0,
+                IORING_ENTER_SQ_WAKEUP,
+                std::ptr::null_mut(),
+            )?;
         }
         Ok(())
     }
