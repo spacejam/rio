@@ -98,7 +98,7 @@ pub struct Cq {
 unsafe impl Send for Cq {}
 
 impl Cq {
-    fn reap_ready_cqes(&mut self) -> usize {
+    pub(crate) fn reap_ready_cqes(&mut self) -> usize {
         let mut head = self.khead.load(Acquire);
         let tail = self.ktail.load(Acquire);
         let count = tail - head;
@@ -235,18 +235,18 @@ impl io_uring_sqe {
 }
 
 impl Uring {
-    pub fn fsync(
-        &mut self,
-        file: &File,
-    ) -> io::Result<Completion<io::Result<()>>> {
+    pub fn fsync<'s, 'file: 's>(
+        &'s mut self,
+        file: &'file File,
+    ) -> io::Result<Completion<'file, io::Result<()>>> {
         self.fsync_ordered(file, Ordering::None)
     }
 
-    pub fn fsync_ordered(
-        &mut self,
-        file: &File,
+    pub fn fsync_ordered<'s, 'file: 's>(
+        &'s mut self,
+        file: &'file File,
         ordering: Ordering,
-    ) -> io::Result<Completion<io::Result<()>>> {
+    ) -> io::Result<Completion<'file, io::Result<()>>> {
         let (completion, sqe) = self.get_sqe()?;
         sqe.prep_rw(
             IORING_OP_FSYNC,

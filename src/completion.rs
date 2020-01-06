@@ -1,5 +1,6 @@
 use std::{
     future::Future,
+    marker::PhantomData,
     pin::Pin,
     sync::{Arc, Condvar, Mutex},
     task::{Context, Poll, Waker},
@@ -8,16 +9,16 @@ use std::{
 use super::{io_uring::Cq, FastLock};
 
 #[derive(Debug)]
-struct CompletionState<T> {
-    fused: bool,
-    item: Option<T>,
+struct CompletionState<C> {
+    done: bool,
+    item: Option<C>,
     waker: Option<Waker>,
 }
 
-impl<T> Default for CompletionState<T> {
-    fn default() -> CompletionState<T> {
+impl<C> Default for CompletionState<C> {
+    fn default() -> CompletionState<C> {
         CompletionState {
-            fused: false,
+            done: false,
             item: None,
             waker: None,
         }
@@ -26,72 +27,116 @@ impl<T> Default for CompletionState<T> {
 
 /// A Future value which may or may not be filled
 #[derive(Debug)]
-pub struct Completion<T> {
-    mu: Arc<Mutex<CompletionState<T>>>,
+pub struct Completion<'a, C> {
+    lifetime: PhantomData<&'a ()>,
+    mu: Arc<Mutex<CompletionState<C>>>,
     cv: Arc<Condvar>,
+    cq: Arc<FastLock<Cq>>,
 }
 
 /// The completer side of the Future
 #[derive(Debug)]
-pub struct CompletionFiller<T> {
-    mu: Arc<Mutex<CompletionState<T>>>,
+pub struct CompletionFiller<C> {
+    mu: Arc<Mutex<CompletionState<C>>>,
     cv: Arc<Condvar>,
-    cq: Arc<FastLock<Cq>>,
 }
 
 /// Create a new `CompletionFiller` and the `Completion`
 /// that will be filled by its completion.
-pub fn pair<T>(
+pub fn pair<'a, C>(
     cq: Arc<FastLock<Cq>>,
-) -> (Completion<T>, CompletionFiller<T>) {
+) -> (Completion<'a, C>, CompletionFiller<C>) {
     let mu =
         Arc::new(Mutex::new(CompletionState::default()));
     let cv = Arc::new(Condvar::new());
     let future = Completion {
+        lifetime: PhantomData,
         mu: mu.clone(),
         cv: cv.clone(),
+        cq,
     };
-    let filler = CompletionFiller { mu, cv, cq };
+    let filler = CompletionFiller { mu, cv };
 
     (future, filler)
 }
 
-impl<T> Completion<T> {
+impl<'a, C> Completion<'a, C> {
     /// Block on the `Completion`'s completion
     /// or dropping of the `CompletionFiller`
-    pub fn wait(self) -> T {
-        let mut inner = self.mu.lock().unwrap();
-        while inner.item.is_none() {
-            inner = self.cv.wait(inner).unwrap();
+    pub fn wait(self) -> C {
+        self.wait_inner().unwrap()
+    }
+
+    fn wait_inner(&self) -> Option<C> {
+        loop {
+            let mut inner = self.mu.lock().unwrap();
+
+            if inner.item.is_some() {
+                return inner.item.take();
+            }
+
+            if inner.done {
+                return None;
+            }
+
+            drop(inner);
+
+            if let Some(mut cq) = self.cq.try_lock() {
+                cq.reap_ready_cqes();
+            }
+
+            let mut inner = self.mu.lock().unwrap();
+
+            if inner.item.is_some() {
+                return inner.item.take();
+            }
+
+            if inner.done {
+                return None;
+            }
+
+            drop(
+                self.cv
+                    .wait_timeout(
+                        inner,
+                        std::time::Duration::from_millis(
+                            10,
+                        ),
+                    )
+                    .unwrap(),
+            );
         }
-        inner.item.take().unwrap()
     }
 }
 
-impl<T> Future for Completion<T> {
-    type Output = T;
+impl<'a, C> Drop for Completion<'a, C> {
+    fn drop(&mut self) {
+        self.wait_inner();
+    }
+}
+
+impl<'a, C> Future for Completion<'a, C> {
+    type Output = C;
 
     fn poll(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Self::Output> {
         let mut state = self.mu.lock().unwrap();
-        if state.fused {
-            return Poll::Pending;
-        }
-        if !state.fused && state.item.is_some() {
-            state.fused = true;
+        if state.item.is_some() {
             Poll::Ready(state.item.take().unwrap())
         } else {
-            state.waker = Some(cx.waker().clone());
+            if !state.done {
+                state.waker = Some(cx.waker().clone());
+            }
             Poll::Pending
         }
     }
 }
 
-impl<T> CompletionFiller<T> {
+impl<C> CompletionFiller<C> {
     /// Complete the `Completion`
-    pub fn fill(self, inner: T) {
+    pub fn fill(self, inner: C) {
         let mut state = self.mu.lock().unwrap();
 
         if let Some(waker) = state.waker.take() {
@@ -99,6 +144,7 @@ impl<T> CompletionFiller<T> {
         }
 
         state.item = Some(inner);
+        state.done = true;
 
         let _notified = self.cv.notify_all();
     }
