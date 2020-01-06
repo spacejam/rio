@@ -1,21 +1,35 @@
 use std::{
+    cmp::PartialEq,
     fs::OpenOptions,
     io::{IoSlice, IoSliceMut, Result},
     os::unix::fs::OpenOptionsExt,
 };
 
 const CHUNK_SIZE: u64 = 4096 * 256;
+const N_CHUNKS: usize = 1024;
 
 // `O_DIRECT` requires all reads and writes
 // to be aligned to the block device's block
 // size. 4096 might not be the best, or even
 // a valid one, for yours!
+#[derive(Clone, Copy)]
 #[repr(align(4096))]
 struct Aligned([u8; CHUNK_SIZE as usize]);
 
+impl PartialEq for Aligned {
+    fn eq(&self, other: &Aligned) -> bool {
+        for i in 0..CHUNK_SIZE as usize {
+            if self.0[i] != other.0[i] {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 fn main() -> Result<()> {
     // start the ring
-    let mut ring = rio::new().expect("create uring");
+    let ring = rio::new().expect("create uring");
 
     // open output file, with `O_DIRECT` set
     let file = OpenOptions::new()
@@ -37,8 +51,8 @@ fn main() -> Result<()> {
 
     let mut completions = vec![];
 
-    for i in 0..(10 * 1024) {
-        let at = i * CHUNK_SIZE;
+    for i in 0..N_CHUNKS {
+        let at = i as u64 * CHUNK_SIZE;
 
         // Write using `Ordering::Link`,
         // causing the next operation to wait
@@ -85,7 +99,7 @@ fn main() -> Result<()> {
         canceled
     );
 
-    if out_buf.0[..] != in_buf.0[..] {
+    if out_buf != in_buf {
         eprintln!("read buffer did not properly contain expected written bytes");
     }
 
