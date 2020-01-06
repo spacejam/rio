@@ -348,11 +348,36 @@ impl io_uring_sqe {
 }
 
 impl Uring {
+    /// Block until all items in the submission queue
+    /// are submitted to the kernel. This can
+    /// be avoided by using the `SQPOLL` mode
+    /// (a privileged operation) on the `Config`
+    /// struct.
     pub fn submit_all(&self) -> io::Result<()> {
         let mut sq = self.sq.lock().unwrap();
         sq.submit_all(self.flags, self.ring_fd)
     }
 
+    /// Flushes all buffered writes, and associated
+    /// metadata changes.
+    ///
+    /// # Warning
+    ///
+    /// You usually don't want to do this without
+    /// linking to a previous write, because
+    /// io_uring will execute operations out-of-order.
+    /// Without setting a `Link` ordering on the previous
+    /// operation, or using `fsync_ordered` with
+    /// the `Drain` ordering, causing all previous
+    /// operations to complete before itself.
+    ///
+    /// Additionally, fsync does not ensure that
+    /// the file actually exists in its parent
+    /// directory. So, for new files, you must
+    /// also fsync the parent directory.
+    ///
+    /// This does nothing for files opened in
+    /// `O_DIRECT` mode.
     pub fn fsync<'uring, 'file>(
         &'uring self,
         file: &'file File,
@@ -366,6 +391,34 @@ impl Uring {
         self.fsync_ordered(file, Ordering::None)
     }
 
+    /// Flushes all buffered writes, and associated
+    /// metadata changes.
+    ///
+    /// You probably want to
+    /// either use a `Link` ordering on a previous
+    /// write (or chain of separate writes), or
+    /// use the `Drain` ordering on this operation.
+    ///
+    /// You may pass in an `Ordering` to specify
+    /// two different optional behaviors:
+    ///
+    /// * `Ordering::Link` causes the next
+    ///   submitted operation to wait until
+    ///   this one finishes. Useful for
+    ///   things like file copy, fsync-after-write,
+    ///   or proxies.
+    /// * `Ordering::Drain` causes all previously
+    ///   submitted operations to complete before
+    ///   this one begins.
+    ///
+    /// # Warning
+    ///
+    /// fsync does not ensure that
+    /// the file actually exists in its parent
+    /// directory. So, for new files, you must
+    /// also fsync the parent directory.
+    /// This does nothing for files opened in
+    /// `O_DIRECT` mode.
     pub fn fsync_ordered<'uring, 'file>(
         &'uring self,
         file: &'file File,
@@ -389,6 +442,24 @@ impl Uring {
         })
     }
 
+    /// Flushes all buffered writes, and the specific
+    /// metadata required to access the data. This
+    /// will skip syncing metadata like atime.
+    ///
+    /// You probably want to
+    /// either use a `Link` ordering on a previous
+    /// write (or chain of separate writes), or
+    /// use the `Drain` ordering on this operation
+    /// with the `fdatasync_ordered` method.
+    ///
+    /// # Warning
+    ///
+    /// fdatasync does not ensure that
+    /// the file actually exists in its parent
+    /// directory. So, for new files, you must
+    /// also fsync the parent directory.
+    /// This does nothing for files opened in
+    /// `O_DIRECT` mode.
     pub fn fdatasync<'uring, 'file>(
         &'uring self,
         file: &'file File,
@@ -402,6 +473,35 @@ impl Uring {
         self.fdatasync_ordered(file, Ordering::None)
     }
 
+    /// Flushes all buffered writes, and the specific
+    /// metadata required to access the data. This
+    /// will skip syncing metadata like atime.
+    ///
+    /// You probably want to
+    /// either use a `Link` ordering on a previous
+    /// write (or chain of separate writes), or
+    /// use the `Drain` ordering on this operation.
+    ///
+    /// You may pass in an `Ordering` to specify
+    /// two different optional behaviors:
+    ///
+    /// * `Ordering::Link` causes the next
+    ///   submitted operation to wait until
+    ///   this one finishes. Useful for
+    ///   things like file copy, fsync-after-write,
+    ///   or proxies.
+    /// * `Ordering::Drain` causes all previously
+    ///   submitted operations to complete before
+    ///   this one begins.
+    ///
+    /// # Warning
+    ///
+    /// fdatasync does not ensure that
+    /// the file actually exists in its parent
+    /// directory. So, for new files, you must
+    /// also fsync the parent directory.
+    /// This does nothing for files opened in
+    /// `O_DIRECT` mode.
     pub fn fdatasync_ordered<'uring, 'file>(
         &'uring self,
         file: &'file File,
@@ -426,7 +526,12 @@ impl Uring {
         })
     }
 
-    pub fn write<'uring, 'file, 'buf>(
+    /// Writes data at the provided `IoSlice` using
+    /// vectored IO. Be sure to check the returned
+    /// `io_uring_cqe`'s `res` field to see if a
+    /// short write happened. This will contain
+    /// the number of bytes written.
+    pub fn write_at<'uring, 'file, 'buf>(
         &'uring self,
         file: &'file File,
         iov: &'buf IoSlice<'buf>,
@@ -442,6 +547,25 @@ impl Uring {
         self.write_ordered(file, iov, at, Ordering::None)
     }
 
+    /// Writes data at the provided `IoSlice` using
+    /// vectored IO.
+    ///
+    /// Be sure to check the returned
+    /// `io_uring_cqe`'s `res` field to see if a
+    /// short write happened. This will contain
+    /// the number of bytes written.
+    ///
+    /// You may pass in an `Ordering` to specify
+    /// two different optional behaviors:
+    ///
+    /// * `Ordering::Link` causes the next
+    ///   submitted operation to wait until
+    ///   this one finishes. Useful for
+    ///   things like file copy, fsync-after-write,
+    ///   or proxies.
+    /// * `Ordering::Drain` causes all previously
+    ///   submitted operations to complete before
+    ///   this one begins.
     pub fn write_ordered<'uring, 'file, 'buf>(
         &'uring self,
         file: &'file File,
@@ -468,7 +592,12 @@ impl Uring {
         })
     }
 
-    pub fn read<'uring, 'file, 'buf>(
+    /// Reads data into the provided `IoSliceMut` using
+    /// vectored IO. Be sure to check the returned
+    /// `io_uring_cqe`'s `res` field to see if a
+    /// short read happened. This will contain
+    /// the number of bytes read.
+    pub fn read_at<'uring, 'file, 'buf>(
         &'uring self,
         file: &'file File,
         iov: &'buf mut IoSliceMut<'buf>,
@@ -484,6 +613,23 @@ impl Uring {
         self.read_ordered(file, iov, at, Ordering::None)
     }
 
+    /// Reads data into the provided `IoSliceMut` using
+    /// vectored IO. Be sure to check the returned
+    /// `io_uring_cqe`'s `res` field to see if a
+    /// short read happened. This will contain
+    /// the number of bytes read.
+    ///
+    /// You may pass in an `Ordering` to specify
+    /// two different optional behaviors:
+    ///
+    /// * `Ordering::Link` causes the next
+    ///   submitted operation to wait until
+    ///   this one finishes. Useful for
+    ///   things like file copy, fsync-after-write,
+    ///   or proxies.
+    /// * `Ordering::Drain` causes all previously
+    ///   submitted operations to complete before
+    ///   this one begins.
     pub fn read_ordered<'uring, 'file, 'buf>(
         &'uring self,
         file: &'file File,
