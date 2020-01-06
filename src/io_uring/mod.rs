@@ -53,9 +53,9 @@ pub struct Sq {
     ktail: &'static AtomicU32,
     kring_mask: &'static u32,
     kring_entries: &'static u32,
-    kflags: &'static libc::c_uint,
-    kdropped: *const libc::c_uint,
-    array: *mut libc::c_uint,
+    kflags: &'static u32,
+    kdropped: *const u32,
+    array: &'static mut [u32],
     sqes: &'static mut [io_uring_sqe],
     sqe_head: libc::c_uint,
     sqe_tail: libc::c_uint,
@@ -393,10 +393,8 @@ impl Uring {
         let to_submit = self.sq.sqe_tail - self.sq.sqe_head;
         for _ in 0..to_submit {
             let index = ktail & mask;
-            unsafe {
-                *(self.sq.array.add(index as usize)) =
-                    self.sq.sqe_head & mask;
-            }
+            self.sq.array[index as usize] =
+                self.sq.sqe_head & mask;
             ktail += 1;
             self.sq.sqe_head += 1;
         }

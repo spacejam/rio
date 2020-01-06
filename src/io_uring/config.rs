@@ -106,9 +106,12 @@ impl Config {
                 kdropped: sq_ring_ptr
                     .add(params.sq_off.dropped as usize)
                     as _,
-                array: sq_ring_ptr
-                    .add(params.sq_off.array as usize)
-                    as _,
+                array: from_raw_parts_mut(
+                    sq_ring_ptr
+                        .add(params.sq_off.array as usize)
+                        as _,
+                    params.sq_entries as usize,
+                ),
             }
         };
 
