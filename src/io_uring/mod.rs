@@ -50,6 +50,7 @@ impl Drop for Uring {
     }
 }
 
+#[derive(Clone, Debug, Copy)]
 pub enum Ordering {
     None,
     Link,

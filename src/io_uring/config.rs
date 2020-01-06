@@ -6,7 +6,7 @@ use std::{
 
 use super::*;
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Copy)]
 pub struct Config {
     pub depth: usize,
     pub sq_poll: bool,
