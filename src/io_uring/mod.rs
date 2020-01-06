@@ -291,7 +291,7 @@ fn uring_mmap(
             libc::MAP_SHARED | libc::MAP_POPULATE,
             ring_fd,
             offset,
-        ) as _
+        )
     }
 }
 
