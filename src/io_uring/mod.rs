@@ -413,7 +413,7 @@ impl Uring {
     pub fn write<'uring, 'file, 'buf>(
         &'uring self,
         file: &'file File,
-        iov: &'buf IoSlice,
+        iov: &'buf IoSlice<'buf>,
         at: u64,
     ) -> io::Result<Completion<'buf, io::Result<()>>>
     where
@@ -427,7 +427,7 @@ impl Uring {
     pub fn write_ordered<'uring, 'file, 'buf>(
         &'uring self,
         file: &'file File,
-        iov: &'buf IoSlice,
+        iov: &'buf IoSlice<'buf>,
         at: u64,
         ordering: Ordering,
     ) -> io::Result<Completion<'buf, io::Result<()>>>
@@ -451,7 +451,7 @@ impl Uring {
     pub fn read<'uring, 'file, 'buf>(
         &'uring self,
         file: &'file File,
-        iov: &'buf mut IoSliceMut,
+        iov: &'buf mut IoSliceMut<'buf>,
         at: u64,
     ) -> io::Result<Completion<'buf, io::Result<()>>>
     where
@@ -465,7 +465,7 @@ impl Uring {
     pub fn read_ordered<'uring, 'file, 'buf>(
         &'uring self,
         file: &'file File,
-        iov: &'buf mut IoSliceMut,
+        iov: &'buf mut IoSliceMut<'buf>,
         at: u64,
         ordering: Ordering,
     ) -> io::Result<Completion<'buf, io::Result<()>>>
