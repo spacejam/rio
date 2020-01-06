@@ -274,7 +274,7 @@ impl Drop for Cq {
     }
 }
 
-fn reaper(ring_fd: i32, cq_mu: Arc<Mutex<Cq>>) {
+fn reaper(ring_fd: i32, cq_mu: &Arc<Mutex<Cq>>) {
     fn block_for_cqe(ring_fd: i32) -> io::Result<()> {
         let flags = IORING_ENTER_GETEVENTS;
         let submit = 0;
@@ -287,7 +287,7 @@ fn reaper(ring_fd: i32, cq_mu: Arc<Mutex<Cq>>) {
     }
 
     loop {
-        if Arc::strong_count(&cq_mu) == 1 {
+        if Arc::strong_count(cq_mu) == 1 {
             // system shutdown
             eprintln!("shutting down io_uring completion marker thread");
             return;
