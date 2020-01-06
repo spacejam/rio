@@ -23,6 +23,7 @@ pub(crate) fn setup(
         1,
         "entries must be a power of 2"
     );
+    #[allow(unsafe_code)]
     let ret = unsafe {
         syscall(SETUP, entries as c_long, p as c_long)
             as c_int
@@ -45,6 +46,7 @@ pub(crate) fn enter(
         // this is strapped into an interruption
         // diaper loop because it's the one that
         // might actually block a lot
+        #[allow(unsafe_code)]
         let ret = unsafe {
             syscall(
                 ENTER,
@@ -75,6 +77,7 @@ pub(crate) fn register(
     arg: *const libc::c_void,
     nr_args: c_uint,
 ) -> io::Result<c_int> {
+    #[allow(unsafe_code)]
     let ret = unsafe {
         syscall(
             REGISTER,
