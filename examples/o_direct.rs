@@ -35,6 +35,7 @@ fn main() -> Result<()> {
 
     let mut completions = vec![];
 
+    let pre = std::time::Instant::now();
     for i in 0..(10 * 1024) {
         let at = i * CHUNK_SIZE;
 
@@ -43,11 +44,17 @@ fn main() -> Result<()> {
         completions.push(completion);
     }
 
+    let post_submit = std::time::Instant::now();
+
     ring.submit_all()?;
 
     for completion in completions.into_iter() {
         completion.wait()?;
     }
+
+    let post_complete = std::time::Instant::now();
+
+    dbg!(post_submit - pre, post_complete - post_submit);
 
     Ok(())
 }
