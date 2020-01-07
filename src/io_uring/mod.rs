@@ -44,6 +44,9 @@ pub struct Uring {
 #[allow(unsafe_code)]
 unsafe impl Send for Uring {}
 
+#[allow(unsafe_code)]
+unsafe impl Sync for Uring {}
+
 impl Drop for Uring {
     fn drop(&mut self) {
         if let Err(e) = self.submit_all() {
