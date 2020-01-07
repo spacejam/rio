@@ -31,7 +31,10 @@ fn main() -> Result<()> {
 
     // create output buffer
     let out_buf = Aligned([42; CHUNK_SIZE as usize]);
-    let out_io_slice = IoSlice::new(&out_buf.0);
+    let out_slice: &[u8] = &out_buf.0;
+
+    let in_buf = Aligned([42; CHUNK_SIZE as usize]);
+    let in_slice: &[u8] = &in_buf.0;
 
     let mut completions = vec![];
 
@@ -39,9 +42,16 @@ fn main() -> Result<()> {
     for i in 0..(10 * 1024) {
         let at = i * CHUNK_SIZE;
 
-        let completion =
-            ring.write_at(&file, &out_io_slice, at)?;
-        completions.push(completion);
+        let write = ring.write_at_ordered(
+            &file,
+            &out_slice,
+            at,
+            rio::Ordering::Link,
+        )?;
+        completions.push(write);
+
+        let read = ring.read_at(&file, &in_slice, at)?;
+        completions.push(read);
     }
 
     let post_submit = std::time::Instant::now();
