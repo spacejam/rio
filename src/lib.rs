@@ -203,6 +203,9 @@
 use std::io;
 
 mod completion;
+mod histogram;
+mod lazy;
+mod metrics;
 
 #[cfg(target_os = "linux")]
 mod io_uring;
@@ -212,7 +215,12 @@ pub use io_uring::{Config, Ordering, Uring as Rio};
 
 pub use completion::Completion;
 
-use completion::{pair, Filler};
+use {
+    completion::{pair, Filler},
+    histogram::Histogram,
+    lazy::Lazy,
+    metrics::{Measure, M},
+};
 
 /// Create a new IO system.
 pub fn new() -> io::Result<Rio> {

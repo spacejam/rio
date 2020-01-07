@@ -6,7 +6,7 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-use super::io_uring::Cq;
+use super::{io_uring::Cq, Measure, M};
 
 #[derive(Debug)]
 struct CompletionState<C> {
@@ -68,6 +68,7 @@ impl<'a, C> Completion<'a, C> {
     }
 
     fn wait_inner(&self) -> Option<C> {
+        let _ = Measure::new(&M.wait);
         loop {
             let mut inner = self.mu.lock().unwrap();
 

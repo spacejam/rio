@@ -15,7 +15,9 @@ struct Aligned([u8; CHUNK_SIZE as usize]);
 
 fn main() -> Result<()> {
     // start the ring
-    let ring = rio::new().expect("create uring");
+    let mut config = rio::Config::default();
+    config.print_profile_on_drop = true;
+    let ring = config.start().expect("create uring");
 
     // open output file, with `O_DIRECT` set
     let file = OpenOptions::new()
@@ -33,7 +35,7 @@ fn main() -> Result<()> {
 
     let mut completions = vec![];
 
-    for i in 0..(4 * 1024) {
+    for i in 0..(10 * 1024) {
         let at = i * CHUNK_SIZE;
 
         let completion =

@@ -32,6 +32,9 @@ pub struct Config {
     ///
     /// CURRENTLY UNSUPPORTED
     pub io_poll: bool,
+    /// Print a profile table on drop, showing where
+    /// time was spent.
+    pub print_profile_on_drop: bool,
     /// setting `raw_params` overrides everything else
     pub raw_params: Option<io_uring_params>,
 }
@@ -44,6 +47,7 @@ impl Default for Config {
             io_poll: false,
             sq_poll_affinity: 0,
             raw_params: None,
+            print_profile_on_drop: false,
         }
     }
 }
@@ -212,6 +216,7 @@ impl Config {
             ring_fd,
             sq: Mutex::new(sq),
             cq: cq_arc,
+            config: self,
         })
     }
 }

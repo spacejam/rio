@@ -14,7 +14,7 @@ use std::{
     },
 };
 
-use super::{pair, Completion, Filler};
+use super::{pair, Completion, Filler, Measure, M};
 
 mod config;
 mod constants;
@@ -38,7 +38,11 @@ pub struct Uring {
     cq: Arc<Mutex<Cq>>,
     flags: u32,
     ring_fd: i32,
+    config: Config,
 }
+
+#[allow(unsafe_code)]
+unsafe impl Send for Uring {}
 
 impl Drop for Uring {
     fn drop(&mut self) {
@@ -47,6 +51,9 @@ impl Drop for Uring {
                 "failed to submit pending items: {:?}",
                 e
             );
+        }
+        if self.config.print_profile_on_drop {
+            M.print_profile();
         }
     }
 }
@@ -164,6 +171,7 @@ impl Sq {
             let flags = IORING_ENTER_GETEVENTS;
             let mut submitted = self.flush();
             while submitted > 0 {
+                let _ = Measure::new(&M.enter_sqe);
                 let ret = enter(
                     ring_fd,
                     submitted,
@@ -175,6 +183,7 @@ impl Sq {
             }
         } else if self.kflags & IORING_SQ_NEED_WAKEUP != 0 {
             let to_submit = self.sqe_tail - self.sqe_head;
+            let _ = Measure::new(&M.enter_sqe);
             enter(
                 ring_fd,
                 to_submit,
@@ -224,6 +233,7 @@ unsafe impl Send for Cq {}
 
 impl Cq {
     pub(crate) fn reap_ready_cqes(&mut self) -> usize {
+        let _ = Measure::new(&M.reap_ready);
         let mut head = self.khead.load(Acquire);
         let tail = self.ktail.load(Acquire);
         let count = tail - head;
@@ -279,6 +289,7 @@ fn reaper(ring_fd: i32, cq_mu: &Arc<Mutex<Cq>>) {
         let wait = 1;
         let sigset = std::ptr::null_mut();
 
+        let _ = Measure::new(&M.enter_cqe);
         enter(ring_fd, submit, wait, flags, sigset)?;
 
         Ok(())
@@ -293,7 +304,12 @@ fn reaper(ring_fd: i32, cq_mu: &Arc<Mutex<Cq>>) {
         if let Err(e) = block_for_cqe(ring_fd) {
             panic!("error in cqe reaper: {:?}", e);
         } else {
-            let mut cq = cq_mu.lock().unwrap();
+            let _hold_cq_mu = Measure::new(&M.cq_mu_hold);
+            let mut cq = {
+                let _get_cq_mu =
+                    Measure::new(&M.cq_mu_wait);
+                cq_mu.lock().unwrap()
+            };
             cq.reap_ready_cqes();
         }
     }
@@ -367,7 +383,11 @@ impl Uring {
     /// (a privileged operation) on the `Config`
     /// struct.
     pub fn submit_all(&self) -> io::Result<()> {
-        let mut sq = self.sq.lock().unwrap();
+        let mut _hold_sq_mu = Measure::new(&M.sq_mu_hold);
+        let mut sq = {
+            let _get_sq_mu = Measure::new(&M.sq_mu_wait);
+            self.sq.lock().unwrap()
+        };
         sq.submit_all(self.flags, self.ring_fd)
     }
 
@@ -704,24 +724,45 @@ impl Uring {
     {
         let (completion, filler) = pair(self.cq.clone());
 
-        let mut sq = self.sq.lock().unwrap();
+        let mut hold_sq_mu = Measure::new(&M.sq_mu_hold);
+        let mut sq = {
+            let _get_sq_mu = Measure::new(&M.sq_mu_wait);
+            self.sq.lock().unwrap()
+        };
+
+        let get_sqe = Measure::new(&M.get_sqe);
         let sqe = loop {
             if let Some(sqe) = sq.try_get_sqe(self.flags) {
                 break sqe;
             } else {
                 drop(sq);
+                drop(hold_sq_mu);
                 self.submit_all()?;
                 self.reap_ready_cqes();
-                sq = self.sq.lock().unwrap();
+
+                hold_sq_mu = Measure::new(&M.sq_mu_hold);
+                sq = {
+                    let _get_sq_mu =
+                        Measure::new(&M.sq_mu_wait);
+                    self.sq.lock().unwrap()
+                };
             };
         };
+        drop(get_sqe);
 
         f(sqe);
+        let user_data = sqe.user_data;
+        drop(sqe);
+        drop(hold_sq_mu);
 
-        let mut cq = self.cq.lock().unwrap();
+        let _hold_cq_mu = Measure::new(&M.cq_mu_hold);
+        let mut cq = {
+            let _get_cq_mu = Measure::new(&M.cq_mu_wait);
+            self.cq.lock().unwrap()
+        };
         assert!(cq
             .pending
-            .insert(sqe.user_data, filler)
+            .insert(user_data, filler)
             .is_none());
 
         Ok(completion)
@@ -729,6 +770,7 @@ impl Uring {
 
     fn reap_ready_cqes(&self) -> usize {
         if let Ok(mut cq) = self.cq.try_lock() {
+            let _hold_cq_mu = Measure::new(&M.cq_mu_hold);
             cq.reap_ready_cqes()
         } else {
             0
