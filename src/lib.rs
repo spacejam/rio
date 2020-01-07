@@ -231,9 +231,14 @@ pub fn new() -> io::Result<Rio> {
 /// can be operated on as if they were a libc::iovec
 pub trait AsIoVec {
     /// Returns the address of this object.
-    fn as_iovec_ptr(&self) -> *mut libc::iovec {
+    fn into_new_iovec(&self) -> libc::iovec {
         let ptr: *const _ = self;
-        ptr as *mut _
+        let iovec_ptr = ptr as *const libc::iovec;
+
+        #[allow(unsafe_code)]
+        unsafe {
+            *iovec_ptr
+        }
     }
 }
 
@@ -242,6 +247,15 @@ impl AsIoVec for libc::iovec {}
 impl<'a> AsIoVec for std::io::IoSlice<'a> {}
 
 impl<'a> AsIoVec for std::io::IoSliceMut<'a> {}
+
+impl<'a> AsIoVec for &'a [u8] {
+    fn into_new_iovec(&self) -> libc::iovec {
+        libc::iovec {
+            iov_base: self.as_ptr() as *mut _,
+            iov_len: self.len(),
+        }
+    }
+}
 
 #[cfg(test)]
 mod use_cases {

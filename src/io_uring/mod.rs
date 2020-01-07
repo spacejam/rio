@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    cell::UnsafeCell,
     convert::TryFrom,
     fs::File,
     io,
@@ -8,9 +8,9 @@ use std::{
     sync::{
         atomic::{
             AtomicU32,
-            Ordering::{Acquire, Release},
+            Ordering::{Acquire, Relaxed, Release},
         },
-        Arc, Mutex,
+        Arc, Condvar, Mutex,
     },
 };
 
@@ -37,10 +37,108 @@ pub use config::Config;
 #[derive(Debug)]
 pub struct Uring {
     sq: Mutex<Sq>,
-    cq: Arc<Mutex<Cq>>,
+    ticket_queue: Arc<TicketQueue>,
+    in_flight: Arc<InFlight>,
     flags: u32,
     ring_fd: i32,
     config: Config,
+}
+
+struct InFlight {
+    iovecs: UnsafeCell<Vec<libc::iovec>>,
+    fillers: UnsafeCell<
+        Vec<Option<Filler<io::Result<io_uring_cqe>>>>,
+    >,
+}
+
+impl std::fmt::Debug for InFlight {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        write!(f, "InFlight {{ .. }}")
+    }
+}
+
+impl InFlight {
+    fn new(size: usize) -> InFlight {
+        let iovecs = UnsafeCell::new(vec![
+            libc::iovec {
+                iov_base: std::ptr::null_mut(),
+                iov_len: 0
+            };
+            size
+        ]);
+        let mut filler_vec = Vec::with_capacity(size);
+        for _ in 0..size {
+            filler_vec.push(None);
+        }
+        let fillers = UnsafeCell::new(filler_vec);
+        InFlight { iovecs, fillers }
+    }
+
+    fn insert(
+        &self,
+        ticket: usize,
+        iovec: Option<libc::iovec>,
+        filler: Filler<io::Result<io_uring_cqe>>,
+    ) -> *mut libc::iovec {
+        #[allow(unsafe_code)]
+        unsafe {
+            let iovec_ptr = self.iovecs.get();
+            if let Some(iovec) = iovec {
+                (*iovec_ptr)[ticket] = iovec;
+            }
+            (*self.fillers.get())[ticket] = Some(filler);
+            if iovec.is_some() {
+                (*iovec_ptr).as_mut_ptr().add(ticket)
+            } else {
+                std::ptr::null_mut()
+            }
+        }
+    }
+
+    fn take_filler(
+        &self,
+        ticket: usize,
+    ) -> Filler<io::Result<io_uring_cqe>> {
+        #[allow(unsafe_code)]
+        unsafe {
+            (*self.fillers.get())[ticket].take().unwrap()
+        }
+    }
+}
+
+#[derive(Debug)]
+struct TicketQueue {
+    tickets: Mutex<Vec<usize>>,
+    cv: Condvar,
+}
+
+impl TicketQueue {
+    fn new(size: usize) -> TicketQueue {
+        let tickets = Mutex::new((0..size).collect());
+        TicketQueue {
+            tickets,
+            cv: Condvar::new(),
+        }
+    }
+
+    fn push_multi(&self, mut new_tickets: Vec<usize>) {
+        let _ = Measure::new(&M.ticket_queue_push);
+        let mut tickets = self.tickets.lock().unwrap();
+        tickets.append(&mut new_tickets);
+        self.cv.notify_one();
+    }
+
+    fn pop(&self) -> usize {
+        let _ = Measure::new(&M.ticket_queue_pop);
+        let mut tickets = self.tickets.lock().unwrap();
+        while tickets.is_empty() {
+            tickets = self.cv.wait(tickets).unwrap();
+        }
+        tickets.pop().unwrap()
+    }
 }
 
 #[allow(unsafe_code)]
@@ -51,12 +149,32 @@ unsafe impl Sync for Uring {}
 
 impl Drop for Uring {
     fn drop(&mut self) {
+        let poison_pill_res = self.with_sqe(None, |sqe| {
+            sqe.prep_rw(
+                IORING_OP_NOP,
+                0,
+                1,
+                0,
+                Ordering::Drain,
+            );
+            // set the poison pill
+            sqe.user_data ^= u64::max_value();
+        });
+
+        if let Err(e) = poison_pill_res {
+            eprintln!(
+                "failed to flush poison pill to the ring: {:?}",
+                e
+            );
+        }
+
         if let Err(e) = self.submit_all() {
             eprintln!(
                 "failed to submit pending items: {:?}",
                 e
             );
         }
+
         if self.config.print_profile_on_drop {
             M.print_profile();
         }
@@ -105,7 +223,6 @@ pub struct Sq {
     ring_ptr: *const libc::c_void,
     ring_sz: usize,
     sqes_sz: usize,
-    max_id: u64,
 }
 
 impl Sq {
@@ -128,9 +245,6 @@ impl Sq {
             let idx = self.sqe_tail & self.kring_mask;
             let sqe = &mut self.sqes[idx as usize];
             self.sqe_tail = next;
-            self.max_id += 1;
-            let id = self.max_id;
-            sqe.user_data = id;
 
             Some(sqe)
         } else {
@@ -230,14 +344,41 @@ pub struct Cq {
     cqes: &'static mut [io_uring_cqe],
     ring_ptr: *const libc::c_void,
     ring_sz: usize,
-    pending: HashMap<u64, Filler<io::Result<io_uring_cqe>>>,
+    ticket_queue: Arc<TicketQueue>,
+    in_flight: Arc<InFlight>,
 }
 
 #[allow(unsafe_code)]
 unsafe impl Send for Cq {}
 
 impl Cq {
-    pub(crate) fn reap_ready_cqes(&mut self) -> usize {
+    fn reaper(&mut self, ring_fd: i32) {
+        fn block_for_cqe(ring_fd: i32) -> io::Result<()> {
+            let flags = IORING_ENTER_GETEVENTS;
+            let submit = 0;
+            let wait = 1;
+            let sigset = std::ptr::null_mut();
+
+            let _ = Measure::new(&M.enter_cqe);
+            enter(ring_fd, submit, wait, flags, sigset)?;
+
+            Ok(())
+        }
+
+        loop {
+            if let Err(e) = block_for_cqe(ring_fd) {
+                panic!("error in cqe reaper: {:?}", e);
+            } else {
+                assert_eq!(self.koverflow.load(Relaxed), 0);
+                if self.reap_ready_cqes().is_none() {
+                    // poison pill detected, time to shut down
+                    return;
+                }
+            }
+        }
+    }
+
+    fn reap_ready_cqes(&mut self) -> Option<usize> {
         let _ = Measure::new(&M.reap_ready);
         let mut head = self.khead.load(Acquire);
         let tail = self.ktail.load(Acquire);
@@ -247,16 +388,31 @@ impl Cq {
         // limitation as of rust 1.40
         let mut cq_opt = Some(self);
 
+        let mut to_push =
+            Vec::with_capacity(count as usize);
+
         while head != tail {
             let cq = cq_opt.take().unwrap();
             let index = head & cq.kring_mask;
             let cqe = &cq.cqes[index as usize];
-            let id = cqe.user_data;
+
+            // we detect a poison pill by seeing if
+            // the user_data is really big, which it
+            // will tend not to be. if it's not a
+            // poison pill, it will be up to as large
+            // as the completion queue length.
+            let (ticket, poisoned) =
+                if cqe.user_data > u64::max_value() / 2 {
+                    (cqe.user_data ^ u64::max_value(), true)
+                } else {
+                    (cqe.user_data, false)
+                };
+
             let res = cqe.res;
+
             let completion_filler =
-                cq.pending.remove(&id).expect(
-                    "expect a queued completion filler",
-                );
+                cq.in_flight.take_filler(ticket as usize);
+            to_push.push(ticket as usize);
 
             let result = if res < 0 {
                 Err(io::Error::from_raw_os_error(res.neg()))
@@ -269,9 +425,19 @@ impl Cq {
             cq.khead.fetch_add(1, Release);
             cq_opt = Some(cq);
             head += 1;
+
+            if poisoned {
+                return None;
+            }
         }
 
-        count as usize
+        cq_opt
+            .take()
+            .unwrap()
+            .ticket_queue
+            .push_multi(to_push);
+
+        Some(count as usize)
     }
 }
 
@@ -283,39 +449,6 @@ impl Drop for Cq {
                 self.ring_ptr as *mut libc::c_void,
                 self.ring_sz,
             );
-        }
-    }
-}
-
-fn reaper(ring_fd: i32, cq_mu: &Arc<Mutex<Cq>>) {
-    fn block_for_cqe(ring_fd: i32) -> io::Result<()> {
-        let flags = IORING_ENTER_GETEVENTS;
-        let submit = 0;
-        let wait = 1;
-        let sigset = std::ptr::null_mut();
-
-        let _ = Measure::new(&M.enter_cqe);
-        enter(ring_fd, submit, wait, flags, sigset)?;
-
-        Ok(())
-    }
-
-    loop {
-        if Arc::strong_count(cq_mu) == 1 {
-            // system shutdown
-            eprintln!("shutting down io_uring completion marker thread");
-            return;
-        }
-        if let Err(e) = block_for_cqe(ring_fd) {
-            panic!("error in cqe reaper: {:?}", e);
-        } else {
-            let mut cq = {
-                let _get_cq_mu =
-                    Measure::new(&M.cq_mu_wait);
-                cq_mu.lock().unwrap()
-            };
-            let _hold_cq_mu = Measure::new(&M.cq_mu_hold);
-            cq.reap_ready_cqes();
         }
     }
 }
@@ -343,21 +476,15 @@ impl io_uring_sqe {
         &mut self,
         opcode: u8,
         file_descriptor: i32,
-        addr: *mut libc::c_void,
         len: usize,
         off: u64,
         ordering: Ordering,
     ) {
-        assert_ne!(
-            self.user_data, 0,
-            "expected user_data to already be set"
-        );
         *self = io_uring_sqe {
             opcode,
             flags: 0,
             ioprio: 0,
             fd: file_descriptor,
-            addr: addr as u64,
             len: u32::try_from(len).unwrap(),
             off,
             ..*self
@@ -369,10 +496,7 @@ impl io_uring_sqe {
         self.apply_order(ordering);
     }
 
-    pub(crate) fn apply_order(
-        &mut self,
-        ordering: Ordering,
-    ) {
+    fn apply_order(&mut self, ordering: Ordering) {
         match ordering {
             Ordering::None => {}
             Ordering::Link => self.flags |= IOSQE_IO_LINK,
@@ -392,7 +516,7 @@ impl Uring {
             let _get_sq_mu = Measure::new(&M.sq_mu_wait);
             self.sq.lock().unwrap()
         };
-        let mut _hold_sq_mu = Measure::new(&M.sq_mu_hold);
+        let _hold_sq_mu = Measure::new(&M.sq_mu_hold);
         sq.submit_all(self.flags, self.ring_fd)
     }
 
@@ -468,11 +592,10 @@ impl Uring {
         'file: 'uring,
         'uring: 'file,
     {
-        self.with_sqe(|sqe| {
+        self.with_sqe(None, |sqe| {
             sqe.prep_rw(
                 IORING_OP_FSYNC,
                 file.as_raw_fd(),
-                std::ptr::null_mut(),
                 0,
                 0,
                 ordering,
@@ -551,11 +674,10 @@ impl Uring {
         'file: 'uring,
         'uring: 'file,
     {
-        self.with_sqe(|mut sqe| {
+        self.with_sqe(None, |mut sqe| {
             sqe.prep_rw(
                 IORING_OP_FSYNC,
                 file.as_raw_fd(),
-                std::ptr::null_mut(),
                 0,
                 0,
                 ordering,
@@ -630,12 +752,10 @@ impl Uring {
         F: AsRawFd,
         B: AsIoVec,
     {
-        let iov_ptr = iov.as_iovec_ptr();
-        self.with_sqe(|sqe| {
+        self.with_sqe(Some(iov.into_new_iovec()), |sqe| {
             sqe.prep_rw(
                 IORING_OP_WRITEV,
                 file.as_raw_fd(),
-                iov_ptr as _,
                 1,
                 at,
                 ordering,
@@ -707,12 +827,10 @@ impl Uring {
         F: AsRawFd,
         B: AsIoVec,
     {
-        let iov_ptr = iov.as_iovec_ptr();
-        self.with_sqe(|sqe| {
+        self.with_sqe(Some(iov.into_new_iovec()), |sqe| {
             sqe.prep_rw(
                 IORING_OP_READV,
                 file.as_raw_fd(),
-                iov_ptr as _,
                 1,
                 at,
                 ordering,
@@ -738,20 +856,14 @@ impl Uring {
     ) -> io::Result<
         Completion<'uring, io::Result<io_uring_cqe>>,
     > {
-        self.with_sqe(|sqe| {
-            sqe.prep_rw(
-                IORING_OP_NOP,
-                0,
-                std::ptr::null_mut(),
-                1,
-                0,
-                ordering,
-            )
+        self.with_sqe(None, |sqe| {
+            sqe.prep_rw(IORING_OP_NOP, 0, 1, 0, ordering)
         })
     }
 
     fn with_sqe<'uring, 'buf, F>(
         &'uring self,
+        iovec: Option<libc::iovec>,
         f: F,
     ) -> io::Result<
         Completion<'buf, io::Result<io_uring_cqe>>,
@@ -761,58 +873,38 @@ impl Uring {
         'uring: 'buf,
         F: FnOnce(&mut io_uring_sqe),
     {
-        let (completion, filler) = pair(self.cq.clone());
+        let ticket = self.ticket_queue.pop();
+        let (completion, filler) = pair();
+
+        let iovec_ptr =
+            self.in_flight.insert(ticket, iovec, filler);
 
         let mut sq = {
             let _get_sq_mu = Measure::new(&M.sq_mu_wait);
             self.sq.lock().unwrap()
         };
-        let mut hold_sq_mu = Measure::new(&M.sq_mu_hold);
+        let _hold_sq_mu = Measure::new(&M.sq_mu_hold);
 
-        let get_sqe = Measure::new(&M.get_sqe);
-        let sqe = loop {
-            if let Some(sqe) = sq.try_get_sqe(self.flags) {
-                break sqe;
-            } else {
-                sq.submit_all(self.flags, self.ring_fd)?;
-                drop(sq);
-                drop(hold_sq_mu);
-                self.reap_ready_cqes();
-
-                sq = {
-                    let _get_sq_mu =
-                        Measure::new(&M.sq_mu_wait);
-                    self.sq.lock().unwrap()
+        let sqe = {
+            let _get_sqe = Measure::new(&M.get_sqe);
+            loop {
+                if let Some(sqe) =
+                    sq.try_get_sqe(self.flags)
+                {
+                    break sqe;
+                } else {
+                    sq.submit_all(
+                        self.flags,
+                        self.ring_fd,
+                    )?;
                 };
-                hold_sq_mu = Measure::new(&M.sq_mu_hold);
-            };
+            }
         };
-        drop(get_sqe);
 
+        sqe.user_data = ticket as u64;
+        sqe.addr = iovec_ptr as u64;
         f(sqe);
-        let user_data = sqe.user_data;
-        drop(sqe);
-        drop(hold_sq_mu);
-
-        let mut cq = {
-            let _get_cq_mu = Measure::new(&M.cq_mu_wait);
-            self.cq.lock().unwrap()
-        };
-        let _hold_cq_mu = Measure::new(&M.cq_mu_hold);
-        assert!(cq
-            .pending
-            .insert(user_data, filler)
-            .is_none());
 
         Ok(completion)
-    }
-
-    fn reap_ready_cqes(&self) -> usize {
-        if let Ok(mut cq) = self.cq.try_lock() {
-            let _hold_cq_mu = Measure::new(&M.cq_mu_hold);
-            cq.reap_ready_cqes()
-        } else {
-            0
-        }
     }
 }

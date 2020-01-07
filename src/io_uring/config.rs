@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     slice::from_raw_parts_mut,
     sync::{atomic::AtomicU32, Arc, Mutex},
 };
@@ -152,7 +151,6 @@ impl Config {
                         as _,
                     params.sq_entries as usize,
                 ),
-                max_id: 0,
             }
         };
 
@@ -172,6 +170,13 @@ impl Config {
         {
             return Err(io::Error::last_os_error());
         }
+
+        let in_flight = Arc::new(InFlight::new(
+            params.cq_entries as usize,
+        ));
+        let ticket_queue = Arc::new(TicketQueue::new(
+            params.cq_entries as usize,
+        ));
 
         #[allow(unsafe_code)]
         let cq = unsafe {
@@ -200,23 +205,23 @@ impl Config {
                         as _,
                     params.cq_entries as usize,
                 ),
-                pending: HashMap::new(),
+                in_flight: in_flight.clone(),
+                ticket_queue: ticket_queue.clone(),
             }
         };
 
-        let cq_arc = Arc::new(Mutex::new(cq));
-        let completion_cq_arc = cq_arc.clone();
-
         std::thread::spawn(move || {
-            reaper(ring_fd, &completion_cq_arc)
+            let mut cq = cq;
+            cq.reaper(ring_fd)
         });
 
         Ok(Uring {
             flags: params.flags,
             ring_fd,
             sq: Mutex::new(sq),
-            cq: cq_arc,
             config: self,
+            in_flight: in_flight,
+            ticket_queue: ticket_queue,
         })
     }
 }

@@ -95,6 +95,8 @@ pub struct Metrics {
     pub get_sqe: Histogram,
     pub reap_ready: Histogram,
     pub wait: Histogram,
+    pub ticket_queue_push: Histogram,
+    pub ticket_queue_pop: Histogram,
 
     #[cfg(feature = "measure_allocs")]
     pub allocations: AtomicU64,
@@ -176,6 +178,7 @@ impl Metrics {
             lat("sq_mu_wait", &self.sq_mu_wait),
             lat("sq_mu_hold", &self.sq_mu_hold),
             lat("enter sqe", &self.enter_sqe),
+            lat("ticket q pop", &self.ticket_queue_pop),
         ]);
 
         println!(
@@ -189,6 +192,7 @@ impl Metrics {
             lat("cq_mu_wait", &self.cq_mu_wait),
             lat("cq_mu_hold", &self.cq_mu_hold),
             lat("enter cqe", &self.enter_cqe),
+            lat("ticket q push", &self.ticket_queue_push),
         ]);
 
         println!(

@@ -6,7 +6,7 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-use super::{io_uring::Cq, Measure, M};
+use super::{Measure, M};
 
 #[derive(Debug)]
 struct CompletionState<C> {
@@ -31,7 +31,6 @@ pub struct Completion<'a, C> {
     lifetime: PhantomData<&'a ()>,
     mu: Arc<Mutex<CompletionState<C>>>,
     cv: Arc<Condvar>,
-    cq: Arc<Mutex<Cq>>,
 }
 
 /// The completer side of the Future
@@ -43,9 +42,7 @@ pub struct Filler<C> {
 
 /// Create a new `Filler` and the `Completion`
 /// that will be filled by its completion.
-pub fn pair<'a, C>(
-    cq: Arc<Mutex<Cq>>,
-) -> (Completion<'a, C>, Filler<C>) {
+pub fn pair<'a, C>() -> (Completion<'a, C>, Filler<C>) {
     let mu =
         Arc::new(Mutex::new(CompletionState::default()));
     let cv = Arc::new(Condvar::new());
@@ -53,7 +50,6 @@ pub fn pair<'a, C>(
         lifetime: PhantomData,
         mu: mu.clone(),
         cv: cv.clone(),
-        cq,
     };
     let filler = Filler { mu, cv };
 
