@@ -31,9 +31,8 @@ readn
 ```rust
 let mut ring = rio::new().expect("create uring");
 let file = std::fs::open("poop_file").expect("openat");
-let mut dater = [0; 66];
-let mut in_io_slice = std::io::IoSliceMut::new(&mut dater);
-let completion = ring.read(&file, &mut in_io_slice, at)?;
+let dater: &[u8] = &[0; 66];
+let completion = ring.read(&file, &dater, at)?;
 
 // if using threaddies
 completion.wait()?;
@@ -47,9 +46,8 @@ writen
 ```rust
 let mut ring = rio::new().expect("create uring");
 let file = std::fs::create("poop_file").expect("openat");
-let dater = [6; 66];
-let out_io_slice = std::io::IoSlice::new(&dater);
-let completion = ring.read_at(&file, &in_io_slice, at)?;
+let dater: &[u8] = &[6; 66];
+let completion = ring.read_at(&file, &dater, at)?;
 
 // if using threadulous
 completion.wait()?;
@@ -62,8 +60,7 @@ speedy O_DIRECT shi0t (try this at home / run the o_direct example)
 
 ```rust
 use std::{
-    fs::OpenOptions,
-    io::{IoSlice, Result},
+    fs::OpenOptions, io::Result,
     os::unix::fs::OpenOptionsExt,
 };
 
@@ -78,7 +75,7 @@ struct Aligned([u8; CHUNK_SIZE as usize]);
 
 fn main() -> Result<()> {
     // start the ring
-    let ring = rio::new().expect("create uring");
+    let ring = rio::new()?;
 
     // open output file, with `O_DIRECT` set
     let file = OpenOptions::new()
@@ -87,23 +84,40 @@ fn main() -> Result<()> {
         .create(true)
         .truncate(true)
         .custom_flags(libc::O_DIRECT)
-        .open("file")
-        .expect("open file");
+        .open("file")?;
 
-    // create output buffer
     let out_buf = Aligned([42; CHUNK_SIZE as usize]);
-    let out_io_slice = IoSlice::new(&out_buf.0);
+    let out_slice: &[u8] = &out_buf.0;
+
+    let in_buf = Aligned([42; CHUNK_SIZE as usize]);
+    let in_slice: &[u8] = &in_buf.0;
 
     let mut completions = vec![];
 
-    for i in 0..(4 * 1024) {
+    for i in 0..(10 * 1024) {
         let at = i * CHUNK_SIZE;
 
-        let completion =
-            ring.write_at(&file, &out_io_slice, at)?;
-        completions.push(completion);
+        // By setting the `Link` order,
+        // we specify that the following
+        // read should happen after this
+        // write.
+        let write = ring.write_at_ordered(
+            &file,
+            &out_slice,
+            at,
+            rio::Ordering::Link,
+        )?;
+        completions.push(write);
+
+        let read = ring.read_at(&file, &in_slice, at)?;
+        completions.push(read);
     }
 
+    // Submissions will happen lazily when we fill up
+    // the submission queue, but we should hit this
+    // ourselves for now. In the future there might
+    // be a thread that does this automatically
+    // at some interval if there's work to submit.
     ring.submit_all()?;
 
     for completion in completions.into_iter() {

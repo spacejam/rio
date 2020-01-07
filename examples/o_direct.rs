@@ -1,6 +1,5 @@
 use std::{
-    fs::OpenOptions,
-    io::{IoSlice, Result},
+    fs::OpenOptions, io::Result,
     os::unix::fs::OpenOptionsExt,
 };
 
@@ -29,7 +28,6 @@ fn main() -> Result<()> {
         .open("file")
         .expect("open file");
 
-    // create output buffer
     let out_buf = Aligned([42; CHUNK_SIZE as usize]);
     let out_slice: &[u8] = &out_buf.0;
 
@@ -42,6 +40,10 @@ fn main() -> Result<()> {
     for i in 0..(10 * 1024) {
         let at = i * CHUNK_SIZE;
 
+        // By setting the `Link` order,
+        // we specify that the following
+        // read should happen after this
+        // write.
         let write = ring.write_at_ordered(
             &file,
             &out_slice,
@@ -56,6 +58,11 @@ fn main() -> Result<()> {
 
     let post_submit = std::time::Instant::now();
 
+    // Submissions will happen lazily when we fill up
+    // the submission queue, but we should hit this
+    // ourselves for now. In the future there might
+    // be a thread that does this automatically
+    // at some interval if there's work to submit.
     ring.submit_all()?;
 
     for completion in completions.into_iter() {
