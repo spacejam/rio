@@ -69,44 +69,14 @@ impl<'a, C> Completion<'a, C> {
 
     fn wait_inner(&self) -> Option<C> {
         let _ = Measure::new(&M.wait);
-        loop {
-            let mut inner = self.mu.lock().unwrap();
 
-            if inner.item.is_some() {
-                return inner.item.take();
-            }
+        let mut inner = self.mu.lock().unwrap();
 
-            if inner.done {
-                return None;
-            }
-
-            drop(inner);
-
-            if let Ok(mut cq) = self.cq.try_lock() {
-                cq.reap_ready_cqes();
-            }
-
-            let mut inner = self.mu.lock().unwrap();
-
-            if inner.item.is_some() {
-                return inner.item.take();
-            }
-
-            if inner.done {
-                return None;
-            }
-
-            drop(
-                self.cv
-                    .wait_timeout(
-                        inner,
-                        std::time::Duration::from_millis(
-                            10,
-                        ),
-                    )
-                    .unwrap(),
-            );
+        while !inner.done {
+            inner = self.cv.wait(inner).unwrap();
         }
+
+        return inner.item.take();
     }
 }
 
