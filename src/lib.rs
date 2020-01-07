@@ -227,6 +227,22 @@ pub fn new() -> io::Result<Rio> {
     Config::default().start()
 }
 
+/// Encompasses various types of IO structures that
+/// can be operated on as if they were a libc::iovec
+pub trait AsIoVec {
+    /// Returns the address of this object.
+    fn as_iovec_ptr(&self) -> *mut libc::iovec {
+        let ptr: *const _ = self;
+        ptr as *mut _
+    }
+}
+
+impl AsIoVec for libc::iovec {}
+
+impl<'a> AsIoVec for std::io::IoSlice<'a> {}
+
+impl<'a> AsIoVec for std::io::IoSliceMut<'a> {}
+
 #[cfg(test)]
 mod use_cases {
     #[test]

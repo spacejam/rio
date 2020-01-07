@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     convert::TryFrom,
     fs::File,
-    io::{self, IoSlice, IoSliceMut},
+    io,
     ops::Neg,
     os::unix::io::AsRawFd,
     sync::{
@@ -14,7 +14,9 @@ use std::{
     },
 };
 
-use super::{pair, Completion, Filler, Measure, M};
+use super::{
+    pair, AsIoVec, Completion, Filler, Measure, M,
+};
 
 mod config;
 mod constants;
@@ -307,12 +309,12 @@ fn reaper(ring_fd: i32, cq_mu: &Arc<Mutex<Cq>>) {
         if let Err(e) = block_for_cqe(ring_fd) {
             panic!("error in cqe reaper: {:?}", e);
         } else {
-            let _hold_cq_mu = Measure::new(&M.cq_mu_hold);
             let mut cq = {
                 let _get_cq_mu =
                     Measure::new(&M.cq_mu_wait);
                 cq_mu.lock().unwrap()
             };
+            let _hold_cq_mu = Measure::new(&M.cq_mu_hold);
             cq.reap_ready_cqes();
         }
     }
@@ -337,10 +339,10 @@ fn uring_mmap(
 }
 
 impl io_uring_sqe {
-    fn prep_rw<F: AsRawFd>(
+    fn prep_rw(
         &mut self,
         opcode: u8,
-        file: &F,
+        file_descriptor: i32,
         addr: *mut libc::c_void,
         len: usize,
         off: u64,
@@ -354,7 +356,7 @@ impl io_uring_sqe {
             opcode,
             flags: 0,
             ioprio: 0,
-            fd: file.as_raw_fd(),
+            fd: file_descriptor,
             addr: addr as u64,
             len: u32::try_from(len).unwrap(),
             off,
@@ -386,11 +388,11 @@ impl Uring {
     /// (a privileged operation) on the `Config`
     /// struct.
     pub fn submit_all(&self) -> io::Result<()> {
-        let mut _hold_sq_mu = Measure::new(&M.sq_mu_hold);
         let mut sq = {
             let _get_sq_mu = Measure::new(&M.sq_mu_wait);
             self.sq.lock().unwrap()
         };
+        let mut _hold_sq_mu = Measure::new(&M.sq_mu_hold);
         sq.submit_all(self.flags, self.ring_fd)
     }
 
@@ -469,7 +471,7 @@ impl Uring {
         self.with_sqe(|sqe| {
             sqe.prep_rw(
                 IORING_OP_FSYNC,
-                file,
+                file.as_raw_fd(),
                 std::ptr::null_mut(),
                 0,
                 0,
@@ -552,7 +554,7 @@ impl Uring {
         self.with_sqe(|mut sqe| {
             sqe.prep_rw(
                 IORING_OP_FSYNC,
-                file,
+                file.as_raw_fd(),
                 std::ptr::null_mut(),
                 0,
                 0,
@@ -562,7 +564,7 @@ impl Uring {
         })
     }
 
-    /// Writes data at the provided `IoSlice` using
+    /// Writes data at the provided buffer using
     /// vectored IO. Be sure to check the returned
     /// `io_uring_cqe`'s `res` field to see if a
     /// short write happened. This will contain
@@ -571,10 +573,10 @@ impl Uring {
     /// Note that the file argument is generic
     /// for anything that supports AsRawFd:
     /// sockets, files, etc...
-    pub fn write_at<'uring, 'file, 'buf, F>(
+    pub fn write_at<'uring, 'file, 'buf, F, B>(
         &'uring self,
         file: &'file F,
-        iov: &'buf IoSlice<'buf>,
+        iov: &'buf B,
         at: u64,
     ) -> io::Result<
         Completion<'buf, io::Result<io_uring_cqe>>,
@@ -584,11 +586,12 @@ impl Uring {
         'buf: 'uring + 'file,
         'uring: 'buf + 'file,
         F: AsRawFd,
+        B: AsIoVec,
     {
         self.write_at_ordered(file, iov, at, Ordering::None)
     }
 
-    /// Writes data at the provided `IoSlice` using
+    /// Writes data at the provided buffer using
     /// vectored IO.
     ///
     /// Be sure to check the returned
@@ -611,10 +614,10 @@ impl Uring {
     /// Note that the file argument is generic
     /// for anything that supports AsRawFd:
     /// sockets, files, etc...
-    pub fn write_at_ordered<'uring, 'file, 'buf, F>(
+    pub fn write_at_ordered<'uring, 'file, 'buf, F, B>(
         &'uring self,
         file: &'file F,
-        iov: &'buf IoSlice<'buf>,
+        iov: &'buf B,
         at: u64,
         ordering: Ordering,
     ) -> io::Result<
@@ -625,12 +628,13 @@ impl Uring {
         'buf: 'uring + 'file,
         'uring: 'buf + 'file,
         F: AsRawFd,
+        B: AsIoVec,
     {
-        let iov_ptr: *const IoSlice<'buf> = iov;
+        let iov_ptr = iov.as_iovec_ptr();
         self.with_sqe(|sqe| {
             sqe.prep_rw(
                 IORING_OP_WRITEV,
-                file,
+                file.as_raw_fd(),
                 iov_ptr as _,
                 1,
                 at,
@@ -639,7 +643,7 @@ impl Uring {
         })
     }
 
-    /// Reads data into the provided `IoSliceMut` using
+    /// Reads data into the provided buffer using
     /// vectored IO. Be sure to check the returned
     /// `io_uring_cqe`'s `res` field to see if a
     /// short read happened. This will contain
@@ -648,10 +652,10 @@ impl Uring {
     /// Note that the file argument is generic
     /// for anything that supports AsRawFd:
     /// sockets, files, etc...
-    pub fn read_at<'uring, 'file, 'buf, F>(
+    pub fn read_at<'uring, 'file, 'buf, F, B>(
         &'uring self,
         file: &'file F,
-        iov: &'buf mut IoSliceMut<'buf>,
+        iov: &'buf B,
         at: u64,
     ) -> io::Result<
         Completion<'buf, io::Result<io_uring_cqe>>,
@@ -661,11 +665,12 @@ impl Uring {
         'buf: 'uring + 'file,
         'uring: 'buf + 'file,
         F: AsRawFd,
+        B: AsIoVec,
     {
         self.read_at_ordered(file, iov, at, Ordering::None)
     }
 
-    /// Reads data into the provided `IoSliceMut` using
+    /// Reads data into the provided buffer using
     /// vectored IO. Be sure to check the returned
     /// `io_uring_cqe`'s `res` field to see if a
     /// short read happened. This will contain
@@ -686,10 +691,10 @@ impl Uring {
     /// Note that the file argument is generic
     /// for anything that supports AsRawFd:
     /// sockets, files, etc...
-    pub fn read_at_ordered<'uring, 'file, 'buf, F>(
+    pub fn read_at_ordered<'uring, 'file, 'buf, F, B>(
         &'uring self,
         file: &'file F,
-        iov: &'buf mut IoSliceMut<'buf>,
+        iov: &'buf B,
         at: u64,
         ordering: Ordering,
     ) -> io::Result<
@@ -700,15 +705,46 @@ impl Uring {
         'buf: 'uring + 'file,
         'uring: 'buf + 'file,
         F: AsRawFd,
+        B: AsIoVec,
     {
-        let iov_ptr: *const IoSliceMut<'buf> = iov;
+        let iov_ptr = iov.as_iovec_ptr();
         self.with_sqe(|sqe| {
             sqe.prep_rw(
                 IORING_OP_READV,
-                file,
+                file.as_raw_fd(),
                 iov_ptr as _,
                 1,
                 at,
+                ordering,
+            )
+        })
+    }
+
+    /// Don't do anything. This is
+    /// mostly for debugging and tuning.
+    pub fn nop<'uring>(
+        &'uring self,
+    ) -> io::Result<
+        Completion<'uring, io::Result<io_uring_cqe>>,
+    > {
+        self.nop_ordered(Ordering::None)
+    }
+
+    /// Don't do anything. This is
+    /// mostly for debugging and tuning.
+    pub fn nop_ordered<'uring>(
+        &'uring self,
+        ordering: Ordering,
+    ) -> io::Result<
+        Completion<'uring, io::Result<io_uring_cqe>>,
+    > {
+        self.with_sqe(|sqe| {
+            sqe.prep_rw(
+                IORING_OP_NOP,
+                0,
+                std::ptr::null_mut(),
+                1,
+                0,
                 ordering,
             )
         })
@@ -727,28 +763,28 @@ impl Uring {
     {
         let (completion, filler) = pair(self.cq.clone());
 
-        let mut hold_sq_mu = Measure::new(&M.sq_mu_hold);
         let mut sq = {
             let _get_sq_mu = Measure::new(&M.sq_mu_wait);
             self.sq.lock().unwrap()
         };
+        let mut hold_sq_mu = Measure::new(&M.sq_mu_hold);
 
         let get_sqe = Measure::new(&M.get_sqe);
         let sqe = loop {
             if let Some(sqe) = sq.try_get_sqe(self.flags) {
                 break sqe;
             } else {
+                sq.submit_all(self.flags, self.ring_fd)?;
                 drop(sq);
                 drop(hold_sq_mu);
-                self.submit_all()?;
                 self.reap_ready_cqes();
 
-                hold_sq_mu = Measure::new(&M.sq_mu_hold);
                 sq = {
                     let _get_sq_mu =
                         Measure::new(&M.sq_mu_wait);
                     self.sq.lock().unwrap()
                 };
+                hold_sq_mu = Measure::new(&M.sq_mu_hold);
             };
         };
         drop(get_sqe);
@@ -758,11 +794,11 @@ impl Uring {
         drop(sqe);
         drop(hold_sq_mu);
 
-        let _hold_cq_mu = Measure::new(&M.cq_mu_hold);
         let mut cq = {
             let _get_cq_mu = Measure::new(&M.cq_mu_wait);
             self.cq.lock().unwrap()
         };
+        let _hold_cq_mu = Measure::new(&M.cq_mu_hold);
         assert!(cq
             .pending
             .insert(user_data, filler)
