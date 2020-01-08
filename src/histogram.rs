@@ -106,6 +106,8 @@ impl Histogram {
                 .fetch_add(1, Ordering::Relaxed)
                 + 1
         }
+        #[cfg(feature = "no_metrics")]
+        0
     }
 
     /// Retrieve a percentile [0-100]. Returns NAN if no metrics have been
