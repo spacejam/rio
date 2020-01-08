@@ -176,6 +176,7 @@ impl Drop for Uring {
         }
 
         if self.config.print_profile_on_drop {
+            #[cfg(not(feature = "no_metrics"))]
             M.print_profile();
         }
     }

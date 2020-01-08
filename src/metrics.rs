@@ -106,6 +106,7 @@ pub struct Metrics {
 
 impl Drop for Metrics {
     fn drop(&mut self) {
+        #[cfg(not(feature = "no_metrics"))]
         self.print_profile()
     }
 }
