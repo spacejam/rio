@@ -242,17 +242,16 @@ pub trait AsIoVec {
     }
 }
 
-impl AsIoVec for libc::iovec {}
+/// This memory can be written.
+pub trait WritableMemory {}
 
-impl<'a> AsIoVec for std::io::IoSlice<'a> {}
-
-impl<'a> AsIoVec for std::io::IoSliceMut<'a> {}
-
-impl<'a> AsIoVec for &'a [u8] {
+impl<A: ?Sized + AsRef<[u8]>> AsIoVec for A {
     fn into_new_iovec(&self) -> libc::iovec {
+        let self_ref: &[u8] = self.as_ref();
+        let self_ptr: *const [u8] = self_ref;
         libc::iovec {
-            iov_base: self.as_ptr() as *mut _,
-            iov_len: self.len(),
+            iov_base: self_ptr as *mut _,
+            iov_len: self_ref.len(),
         }
     }
 }

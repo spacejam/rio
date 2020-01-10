@@ -12,6 +12,12 @@ categories = ["asynchronous", "concurrency", "filesystem", "network-programming"
 documentation = "https://docs.rs/rio/"
 readme = "README.md"
 
+[profile.release]
+debug = true
+
+[profile.dev]
+debug = true
+
 [dependencies]
 libc = "0.2.66"
 
