@@ -85,37 +85,3 @@ fn uring_mmap(
         )
     }
 }
-
-impl io_uring_sqe {
-    fn prep_rw(
-        &mut self,
-        opcode: u8,
-        file_descriptor: i32,
-        len: usize,
-        off: u64,
-        ordering: Ordering,
-    ) {
-        *self = io_uring_sqe {
-            opcode,
-            flags: 0,
-            ioprio: 0,
-            fd: file_descriptor,
-            len: u32::try_from(len).unwrap(),
-            off,
-            ..*self
-        };
-
-        self.__bindgen_anon_1.rw_flags = 0;
-        self.__bindgen_anon_2.__pad2 = [0; 3];
-
-        self.apply_order(ordering);
-    }
-
-    fn apply_order(&mut self, ordering: Ordering) {
-        match ordering {
-            Ordering::None => {}
-            Ordering::Link => self.flags |= IOSQE_IO_LINK,
-            Ordering::Drain => self.flags |= IOSQE_IO_DRAIN,
-        }
-    }
-}
