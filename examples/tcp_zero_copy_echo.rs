@@ -27,5 +27,6 @@ fn main() -> io::Result<()> {
         let stream = stream_res?;
         proxy(&stream, &stream);
     }
+
     Ok(())
 }
