@@ -8,13 +8,12 @@ pub struct Cq {
     khead: &'static AtomicU32,
     ktail: &'static AtomicU32,
     kring_mask: &'static u32,
-    kring_entries: &'static u32,
     koverflow: &'static AtomicU32,
     cqes: &'static mut [io_uring_cqe],
-    ring_ptr: *const libc::c_void,
-    ring_sz: usize,
     ticket_queue: Arc<TicketQueue>,
     in_flight: Arc<InFlight>,
+    ring_ptr: *const libc::c_void,
+    ring_mmap_sz: usize,
 }
 
 #[allow(unsafe_code)]
@@ -26,7 +25,7 @@ impl Drop for Cq {
         unsafe {
             libc::munmap(
                 self.ring_ptr as *mut libc::c_void,
-                self.ring_sz,
+                self.ring_mmap_sz,
             );
         }
     }
@@ -40,12 +39,12 @@ impl Cq {
         ticket_queue: Arc<TicketQueue>,
     ) -> io::Result<Cq> {
         // TODO IORING_FEAT_SINGLE_MMAP for cq
-        let cq_ring_sz = params.cq_off.cqes as usize
+        let cq_ring_mmap_sz = params.cq_off.cqes as usize
             + (params.cq_entries as usize
                 * std::mem::size_of::<io_uring_cqe>());
 
         let cq_ring_ptr = uring_mmap(
-            cq_ring_sz,
+            cq_ring_mmap_sz,
             ring_fd,
             IORING_OFF_CQ_RING,
         );
@@ -60,7 +59,7 @@ impl Cq {
         Ok(unsafe {
             Cq {
                 ring_ptr: cq_ring_ptr,
-                ring_sz: cq_ring_sz,
+                ring_mmap_sz: cq_ring_mmap_sz,
                 khead: &*(cq_ring_ptr
                     .add(params.cq_off.head as usize)
                     as *const AtomicU32),
@@ -69,10 +68,6 @@ impl Cq {
                     as *const AtomicU32),
                 kring_mask: &*(cq_ring_ptr
                     .add(params.cq_off.ring_mask as usize)
-                    as *const u32),
-                kring_entries: &*(cq_ring_ptr.add(
-                    params.cq_off.ring_entries as usize,
-                )
                     as *const u32),
                 koverflow: &*(cq_ring_ptr
                     .add(params.cq_off.overflow as usize)

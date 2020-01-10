@@ -8,16 +8,15 @@ pub(crate) struct Sq {
     khead: &'static AtomicU32,
     ktail: &'static AtomicU32,
     kring_mask: &'static u32,
-    kring_entries: &'static u32,
     kflags: &'static u32,
-    kdropped: *const u32,
+    kdropped: &'static AtomicU32,
     array: &'static mut [u32],
     sqes: &'static mut [io_uring_sqe],
     sqe_head: u32,
     sqe_tail: u32,
     ring_ptr: *const libc::c_void,
-    ring_sz: usize,
-    sqes_sz: usize,
+    ring_mmap_sz: usize,
+    sqes_mmap_sz: usize,
 }
 
 impl Drop for Sq {
@@ -26,13 +25,13 @@ impl Drop for Sq {
         unsafe {
             libc::munmap(
                 self.sqes.as_ptr() as *mut libc::c_void,
-                self.sqes_sz,
+                self.sqes_mmap_sz,
             );
         }
         unsafe {
             libc::munmap(
                 self.ring_ptr as *mut libc::c_void,
-                self.ring_sz,
+                self.ring_mmap_sz,
             );
         }
     }
@@ -43,14 +42,14 @@ impl Sq {
         params: &io_uring_params,
         ring_fd: i32,
     ) -> io::Result<Sq> {
-        let sq_ring_sz = params.sq_off.array as usize
+        let sq_ring_mmap_sz = params.sq_off.array as usize
             + (params.sq_entries as usize
                 * std::mem::size_of::<u32>());
 
         // TODO IORING_FEAT_SINGLE_MMAP for sq
 
         let sq_ring_ptr = uring_mmap(
-            sq_ring_sz,
+            sq_ring_mmap_sz,
             ring_fd,
             IORING_OFF_SQ_RING,
         );
@@ -61,12 +60,15 @@ impl Sq {
             return Err(io::Error::last_os_error());
         }
 
-        let sqes_sz: usize = params.sq_entries as usize
+        let sqes_mmap_sz: usize = params.sq_entries
+            as usize
             * std::mem::size_of::<io_uring_sqe>();
 
-        let sqes_ptr: *mut io_uring_sqe =
-            uring_mmap(sqes_sz, ring_fd, IORING_OFF_SQES)
-                as _;
+        let sqes_ptr: *mut io_uring_sqe = uring_mmap(
+            sqes_mmap_sz,
+            ring_fd,
+            IORING_OFF_SQES,
+        ) as _;
 
         if sqes_ptr.is_null()
             || sqes_ptr
@@ -81,8 +83,8 @@ impl Sq {
                 sqe_head: 0,
                 sqe_tail: 0,
                 ring_ptr: sq_ring_ptr,
-                ring_sz: sq_ring_sz,
-                sqes_sz,
+                ring_mmap_sz: sq_ring_mmap_sz,
+                sqes_mmap_sz,
                 sqes: from_raw_parts_mut(
                     sqes_ptr,
                     params.sq_entries as usize,
@@ -96,16 +98,12 @@ impl Sq {
                 kring_mask: &*(sq_ring_ptr
                     .add(params.sq_off.ring_mask as usize)
                     as *const u32),
-                kring_entries: &*(sq_ring_ptr.add(
-                    params.sq_off.ring_entries as usize,
-                )
-                    as *const u32),
                 kflags: &*(sq_ring_ptr
                     .add(params.sq_off.flags as usize)
                     as *const u32),
-                kdropped: sq_ring_ptr
+                kdropped: &*(sq_ring_ptr
                     .add(params.sq_off.dropped as usize)
-                    as _,
+                    as *const AtomicU32),
                 array: from_raw_parts_mut(
                     sq_ring_ptr
                         .add(params.sq_off.array as usize)
@@ -131,7 +129,7 @@ impl Sq {
                 self.khead.load(Acquire)
             };
 
-        if next - head <= *self.kring_entries {
+        if next - head <= self.sqes.len() as u32 {
             let idx = self.sqe_tail & self.kring_mask;
             let sqe = &mut self.sqes[idx as usize];
             self.sqe_tail = next;
@@ -145,12 +143,10 @@ impl Sq {
     // sets sq.array to point to current sq.sqe_head
     fn flush(&mut self) -> u32 {
         let mask: u32 = *self.kring_mask;
-        if self.sqe_head == self.sqe_tail {
-            return 0;
-        }
+        let to_submit = self.sqe_tail - self.sqe_head;
 
         let mut ktail = self.ktail.load(Acquire);
-        let to_submit = self.sqe_tail - self.sqe_head;
+
         for _ in 0..to_submit {
             let index = ktail & mask;
             self.array[index as usize] =
@@ -160,7 +156,6 @@ impl Sq {
         }
 
         let swapped = self.ktail.swap(ktail, Release);
-
         assert_eq!(swapped, ktail - to_submit);
 
         to_submit
@@ -201,6 +196,7 @@ impl Sq {
                 std::ptr::null_mut(),
             )?;
         }
+        assert_eq!(self.kdropped.load(Relaxed), 0);
         Ok(())
     }
 }
