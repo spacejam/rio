@@ -14,7 +14,6 @@ fn proxy(a: &TcpStream, b: &TcpStream) -> io::Result<()> {
             rio::Ordering::Link,
         )?;
         let write = ring.write_at(b, &buf, 0)?;
-        ring.submit_all()?;
         read.wait()?;
         write.wait()?;
     }

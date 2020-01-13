@@ -103,7 +103,7 @@ impl Uring {
         sq.submit_all(self.flags, self.ring_fd).map(|_| ())
     }
 
-    pub fn ensure_submitted(
+    pub(crate) fn ensure_submitted(
         &self,
         sqe_id: u64,
     ) -> io::Result<()> {

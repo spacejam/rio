@@ -61,13 +61,6 @@ fn main() -> Result<()> {
 
     let post_submit = std::time::Instant::now();
 
-    // Submissions will happen lazily when we fill up
-    // the submission queue, but we should hit this
-    // ourselves for now. In the future there might
-    // be a thread that does this automatically
-    // at some interval if there's work to submit.
-    ring.submit_all()?;
-
     for completion in completions.into_iter() {
         completion.wait()?;
     }

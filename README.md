@@ -29,6 +29,13 @@ thing to happen to linux IO in a long time.
   when the number of in-flight requests reaches this
   threshold, to guarantee that no completions will
   be dropped due to completion queue overflow.
+* rio will handle submission queue submissions
+  automatically. If you start waiting for a
+  `Completion`, rio will make sure that we
+  have already submitted at least this request
+  to the kernel. Other io_uring libraries force
+  you to handle this manually, which is another
+  possible source of misuse.
 
 This is intended to be the core of [sled's](http://sled.rs) writepath.
 It is built with a specific high-level
@@ -138,7 +145,6 @@ fn proxy(a: &TcpStream, b: &TcpStream) -> io::Result<()> {
             rio::Ordering::Link,
         )?;
         let write = ring.write_at(b, &buf, 0)?;
-        ring.submit_all()?;
         read.wait()?;
         write.wait()?;
     }
@@ -213,13 +219,6 @@ fn main() -> Result<()> {
         let read = ring.read_at(&file, &in_slice, at)?;
         completions.push(read);
     }
-
-    // Submissions will happen lazily when we fill up
-    // the submission queue, but we should hit this
-    // ourselves for now. In the future there might
-    // be a thread that does this automatically
-    // at some interval if there's work to submit.
-    ring.submit_all()?;
 
     for completion in completions.into_iter() {
         completion.wait()?;

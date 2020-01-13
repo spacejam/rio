@@ -110,8 +110,6 @@
 //!         completions.push(completion);
 //!     }
 //!
-//!     ring.submit_all()?;
-//!
 //!     for completion in completions.into_iter() {
 //!         completion.wait()?;
 //!     }
