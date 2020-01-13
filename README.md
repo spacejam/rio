@@ -56,6 +56,14 @@ io_uring unlocks the following kernel features:
 * Allows IO buffers and file descriptors to be registered
   for cheap reuse (remapping buffers and file descriptors
   for use in the kernel has a significant cost).
+* If left to its own devices, io_uring will allow you to
+  submit more IO operations than would actually fit in
+  the completion queue, allowing completions to be dropped
+  and causing leaks of any userspace thing waiting for
+  the completion. rio exerts backpressure on submitters
+  when the number of in-flight requests reaches this
+  threshold, to guarantee that no completions will
+  be dropped due to completion queue overflow.
 
 To read more about io_uring, check out:
 
