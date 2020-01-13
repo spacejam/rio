@@ -26,13 +26,49 @@ sled expects to use the following features:
 
 # examples that will be broken in the next day or two
 
-readn
+tcp echo server:
+```rust
+use std::{
+    io::{self, prelude::*},
+    net::{TcpListener, TcpStream},
+};
+
+fn proxy(a: &TcpStream, b: &TcpStream) -> io::Result<()> {
+    let ring = rio::new()?;
+    let mut buf = vec![0_u8; 1];
+    loop {
+        let read = ring.read_at_ordered(
+            a,
+            &mut buf,
+            0,
+            rio::Ordering::Link,
+        )?;
+        let write = ring.write_at(b, &buf, 0)?;
+        ring.submit_all()?;
+        read.wait()?;
+        write.wait()?;
+    }
+}
+
+fn main() -> io::Result<()> {
+    let acceptor = TcpListener::bind("127.0.0.1:6666")?;
+
+    for stream_res in acceptor.incoming() {
+        let stream = stream_res?;
+        proxy(&stream, &stream);
+    }
+
+    Ok(())
+}
+```
+
+file reading:
 
 ```rust
 let mut ring = rio::new().expect("create uring");
-let file = std::fs::open("poop_file").expect("openat");
-let dater: &[u8] = &[0; 66];
-let completion = ring.read(&file, &dater, at)?;
+let file = std::fs::open("file").expect("openat");
+let dater: &mut [u8] = &[0; 66];
+let completion = ring.read(&file, &mut dater, at)?;
 
 // if using threads
 completion.wait()?;
@@ -41,11 +77,11 @@ completion.wait()?;
 completion.await?
 ```
 
-writen
+file writing:
 
 ```rust
 let mut ring = rio::new().expect("create uring");
-let file = std::fs::create("poop_file").expect("openat");
+let file = std::fs::create("file").expect("openat");
 let dater: &[u8] = &[6; 66];
 let completion = ring.read_at(&file, &dater, at)?;
 

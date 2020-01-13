@@ -1,11 +1,11 @@
 use std::{
-    io::{self, prelude::*},
+    io::{self},
     net::{TcpListener, TcpStream},
 };
 
 fn proxy(a: &TcpStream, b: &TcpStream) -> io::Result<()> {
     let ring = rio::new()?;
-    let buf = vec![0_u8; 1];
+    let buf: &mut [u8] = &mut [0];
     loop {
         let read = ring.read_at_ordered(
             a,
@@ -25,7 +25,7 @@ fn main() -> io::Result<()> {
 
     for stream_res in acceptor.incoming() {
         let stream = stream_res?;
-        proxy(&stream, &stream);
+        proxy(&stream, &stream).unwrap_err();
     }
 
     Ok(())

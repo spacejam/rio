@@ -263,7 +263,7 @@ impl Uring {
     pub fn write_at<'uring, 'file, 'buf, F, B>(
         &'uring self,
         file: &'file F,
-        iov: &'buf B,
+        iov: B,
         at: u64,
     ) -> io::Result<
         Completion<'buf, io::Result<io_uring_cqe>>,
@@ -273,7 +273,7 @@ impl Uring {
         'buf: 'uring + 'file,
         'uring: 'buf + 'file,
         F: AsRawFd,
-        B: AsIoVec,
+        B: 'buf + AsIoVec,
     {
         self.write_at_ordered(file, iov, at, Ordering::None)
     }
@@ -304,7 +304,7 @@ impl Uring {
     pub fn write_at_ordered<'uring, 'file, 'buf, F, B>(
         &'uring self,
         file: &'file F,
-        iov: &'buf B,
+        iov: B,
         at: u64,
         ordering: Ordering,
     ) -> io::Result<
@@ -315,7 +315,7 @@ impl Uring {
         'buf: 'uring + 'file,
         'uring: 'buf + 'file,
         F: AsRawFd,
-        B: AsIoVec,
+        B: 'buf + AsIoVec,
     {
         self.with_sqe(Some(iov.into_new_iovec()), |sqe| {
             sqe.prep_rw(
@@ -328,8 +328,9 @@ impl Uring {
         })
     }
 
-    /// Reads data into the provided buffer using
-    /// vectored IO. Be sure to check the returned
+    /// Reads data into the provided buffer from the
+    /// given file-like object, at the given offest,
+    /// using vectored IO. Be sure to check the returned
     /// `io_uring_cqe`'s `res` field to see if a
     /// short read happened. This will contain
     /// the number of bytes read.
@@ -350,7 +351,7 @@ impl Uring {
         'buf: 'uring + 'file,
         'uring: 'buf + 'file,
         F: AsRawFd,
-        B: AsIoVec,
+        B: AsIoVec + AsIoVecMut,
     {
         self.read_at_ordered(file, iov, at, Ordering::None)
     }
@@ -390,7 +391,7 @@ impl Uring {
         'buf: 'uring + 'file,
         'uring: 'buf + 'file,
         F: AsRawFd,
-        B: AsIoVec,
+        B: AsIoVec + AsIoVecMut,
     {
         self.with_sqe(Some(iov.into_new_iovec()), |sqe| {
             sqe.prep_rw(

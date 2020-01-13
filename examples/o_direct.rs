@@ -31,8 +31,8 @@ fn main() -> Result<()> {
     let out_buf = Aligned([42; CHUNK_SIZE as usize]);
     let out_slice: &[u8] = &out_buf.0;
 
-    let in_buf = Aligned([42; CHUNK_SIZE as usize]);
-    let in_slice: &[u8] = &in_buf.0;
+    let mut in_buf = Aligned([42; CHUNK_SIZE as usize]);
+    let in_slice: &mut [u8] = &mut in_buf.0;
 
     let mut completions = vec![];
 
@@ -52,6 +52,9 @@ fn main() -> Result<()> {
         )?;
         completions.push(write);
 
+        // This operation will not start
+        // until the previous linked one
+        // finishes.
         let read = ring.read_at(&file, &in_slice, at)?;
         completions.push(read);
     }

@@ -1,12 +1,12 @@
-//! A steamy river of uring. Fast IO with a API that doesn't make me eyes bleed. GPL-666'd.
+//! A steamy river of uring. Fast IO using io_uring.
 //!
 //! io_uring is going to change everything. It will speed up your
 //! disk usage by like 300%. Go ahead, run the `O_DIRECT` example
-//! and compare that to using a threadpool or any other async shit
+//! and compare that to using a threadpool or anything
 //! you want. It's not gonna come close!
 //!
 //! Starting in linux 5.5, it also has support for tcp accept.
-//! This is gonna fucking shred everything out there!!!
+//! This is gonna shred everything out there!!!
 //!
 //! But there's a few snags. Mainly, it's a little misuse-prone.
 //! But Rust is pretty nice for specifying proofs about
@@ -19,33 +19,32 @@
 //!
 //! This library aims to be misuse-resistant.
 //! Most of the other io_uring libraries make
-//! it really easy to blow ur ass off with
-//! use-after-frees. `rio` uses a ton of
-//! lifetime magic to make this stuff fail
-//! to compile. Also, if a `Completion`
+//! it really easy to blow your legs off with
+//! use-after-frees. `rio` uses standard Rust
+//! lifetime specification  to make use-after-frees
+//! fail to compile. Also, if a `Completion`
 //! that was pinned to the lifetime of a uring
 //! and backing buffer is dropped, it
 //! waits for its backing operation to complete
 //! before returning from Drop, to further
 //! prevent use-after-frees. use-after-frees
-//! can SUCK MY ASS!!!
+//! are not expressible when using `rio`.
 //!
 //! # Examples
 //!
-//! This shit won't compile:
+//! This won't compile:
 //!
 //! ```compile_fail
 //! let rio = rio::new().unwrap();
-//! let file = std::fs::File::open("fuck_you_use_after_free_you_suck").unwrap();
+//! let file = std::fs::File::open("use_after_free").unwrap();
 //! let out_buf = vec![42; 666];
-//! let out_io_slice = std::io::IoSlice::new(&out_buf);
 //!
-//! let completion = rio.write_at(&file, &out_io_slice, 0).unwrap();
+//! let completion = rio.write_at(&file, &out_buf, 0).unwrap();
 //!
 //! // At this very moment, the kernel has a pointer to that there slice.
 //! // It also has the raw file descriptor of the file.
 //! // It's fixin' to write the data from that memory into the file.
-//! // But if we freed the shit, it would get megafucked,
+//! // But if we freed it, it would be a bug,
 //! // and the kernel would write potentially scandalous data
 //! // into the file instead.
 //!
@@ -59,7 +58,7 @@
 //! // of `.wait()`
 //! completion.wait();
 //!
-//! // now it's safe to drop that shit, whatever...
+//! // now it's safe to drop those things in any order.
 //! ```
 //!
 //!
@@ -97,7 +96,6 @@
 //!
 //!     // create output buffer
 //!     let out_buf = Aligned([42; CHUNK_SIZE as usize]);
-//!     let out_io_slice = IoSlice::new(&out_buf.0);
 //!
 //!     let mut completions = vec![];
 //!
@@ -106,7 +104,7 @@
 //!
 //!         let completion = ring.write_at(
 //!             &file,
-//!             &out_io_slice,
+//!             out_buf.0.as_ref(),
 //!             at,
 //!         )?;
 //!         completions.push(completion);
@@ -137,10 +135,6 @@
     unused_qualifications
 )]
 #![deny(
-    // over time, consider enabling the following commented-out lints:
-    // clippy::missing_docs_in_private_items,
-    // clippy::else_if_without_else,
-    // clippy::indexing_slicing,
     clippy::cast_lossless,
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
@@ -197,7 +191,7 @@
     clippy::used_underscore_binding,
     clippy::wildcard_dependencies,
     clippy::wildcard_enum_match_arm,
-    clippy::wrong_pub_self_convention,
+    clippy::wrong_pub_self_convention
 )]
 
 use std::io;
@@ -242,9 +236,6 @@ pub trait AsIoVec {
     }
 }
 
-/// This memory can be written.
-pub trait WritableMemory {}
-
 impl<A: ?Sized + AsRef<[u8]>> AsIoVec for A {
     fn into_new_iovec(&self) -> libc::iovec {
         let self_ref: &[u8] = self.as_ref();
@@ -256,29 +247,54 @@ impl<A: ?Sized + AsRef<[u8]>> AsIoVec for A {
     }
 }
 
-#[cfg(test)]
-mod use_cases {
-    #[test]
-    #[ignore]
-    fn broadcast() {
-        todo!()
-    }
+/// We use this internally as a way of communicating
+/// that for certain operations, we cannot accept a
+/// reference into read-only memory, like for reads.
+///
+/// If your compilation fails because of something
+/// related to this, it's because you are trying
+/// to use memory as a destination for a read
+/// that could never actually be written to anyway,
+/// which the compiler may place in read-only
+/// memory in your process that cannot be written
+/// to by anybody.
+///
+/// # Examples
+///
+/// This will cause the following code to break,
+/// which would have caused an IO error anyway
+/// due to trying to write to static read-only
+/// memory:
+///
+/// ```compile_fail
+/// let ring = rio::new().unwrap();
+/// let file = std::fs::File::open("failure").unwrap();
+///
+/// // the following buffer is placed in
+/// // static, read-only memory and would
+/// // never be valid to write to
+/// let buffer: &[u8] = b"this is read-only";
+///
+/// // this fails to compile, because &[u8]
+/// // does not implement `AsIoVecMut`:
+/// ring.read_at(&file, &buffer, 0).unwrap();
+/// ```
+///
+/// which can be fixed by making it a mutable
+/// slice:
+///
+/// ```no_run
+/// let ring = rio::new().unwrap();
+/// let file = std::fs::File::open("failure").unwrap();
+///
+/// // the following buffer is placed in
+/// // readable and writable memory, due to
+/// // its mutability
+/// let buffer: &mut [u8] = &mut [0; 42];
+///
+/// // this now works
+/// ring.read_at(&file, &buffer, 0).unwrap();
+/// ```
+pub trait AsIoVecMut {}
 
-    #[test]
-    #[ignore]
-    fn cp() {
-        todo!()
-    }
-
-    #[test]
-    #[ignore]
-    fn logger() {
-        todo!()
-    }
-
-    #[test]
-    #[ignore]
-    fn sled_like() {
-        todo!()
-    }
-}
+impl<A: ?Sized + AsMut<[u8]>> AsIoVecMut for A {}

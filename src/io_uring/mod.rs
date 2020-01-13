@@ -15,7 +15,8 @@ use std::{
 };
 
 use super::{
-    pair, AsIoVec, Completion, Filler, Measure, M,
+    pair, AsIoVec, AsIoVecMut, Completion, Filler, Measure,
+    M,
 };
 
 mod config;
