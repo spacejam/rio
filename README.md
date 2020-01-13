@@ -9,8 +9,10 @@ thing to happen to linux IO in a long time.
 
 #### Innovations
 
-* only relies on libc, no need for c/bindgen to complicate things, nobody wants that
-* the completions work great with threads or an async runtime (`Completion` implements Future)
+* only relies on libc, no need for c/bindgen to
+  complicate things, nobody wants that
+* the completions work great with threads or an
+  async runtime (`Completion` implements Future)
 * takes advantage of Rust's lifetimes and RAII to guarantee
   that the kernel will never asynchronously write to memory
   that Rust has destroyed.
@@ -19,6 +21,14 @@ thing to happen to linux IO in a long time.
   you from trying to write data into static read-only memory)
 * no need to mess with `IoSlice` / `libc::iovec` directly.
   rio maintains these in the background for you.
+* If left to its own devices, io_uring will allow you to
+  submit more IO operations than would actually fit in
+  the completion queue, allowing completions to be dropped
+  and causing leaks of any userspace thing waiting for
+  the completion. rio exerts backpressure on submitters
+  when the number of in-flight requests reaches this
+  threshold, to guarantee that no completions will
+  be dropped due to completion queue overflow.
 
 This is intended to be the core of [sled's](http://sled.rs) writepath.
 It is built with a specific high-level
@@ -56,14 +66,6 @@ io_uring unlocks the following kernel features:
 * Allows IO buffers and file descriptors to be registered
   for cheap reuse (remapping buffers and file descriptors
   for use in the kernel has a significant cost).
-* If left to its own devices, io_uring will allow you to
-  submit more IO operations than would actually fit in
-  the completion queue, allowing completions to be dropped
-  and causing leaks of any userspace thing waiting for
-  the completion. rio exerts backpressure on submitters
-  when the number of in-flight requests reaches this
-  threshold, to guarantee that no completions will
-  be dropped due to completion queue overflow.
 
 To read more about io_uring, check out:
 
@@ -75,7 +77,11 @@ To read more about io_uring, check out:
 
 * they haven't copied `rio`'s features yet, which you pretty much
   have to use anyway to responsibly use `io_uring` due to the
-  sharp edges of the API.
+  sharp edges of the API. All of the libraries I've seen
+  as of January 13 2020 are totally easy to overflow the
+  completion queue with, as well as easy to express
+  use-after-frees with, don't seem to be async-friendly,
+  etc...
 
 #### examples that will be broken in the next day or two
 
