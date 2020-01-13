@@ -165,27 +165,35 @@ impl Sq {
         &mut self,
         ring_flags: u32,
         ring_fd: i32,
-    ) -> io::Result<()> {
-        if ring_flags & IORING_SETUP_SQPOLL == 0 {
+    ) -> io::Result<u64> {
+        let submitted = if ring_flags & IORING_SETUP_SQPOLL
+            == 0
+        {
             // non-SQPOLL mode, we need to use
             // `enter` to submit our SQEs.
 
             // TODO for polling, keep flags at 0
 
             let flags = IORING_ENTER_GETEVENTS;
-            let mut submitted = self.flush();
-            while submitted > 0 {
+            let flushed = self.flush();
+            let mut to_submit = flushed;
+            while to_submit > 0 {
                 let _ = Measure::new(&M.enter_sqe);
                 let ret = enter(
                     ring_fd,
-                    submitted,
+                    to_submit,
                     0,
                     flags,
                     std::ptr::null_mut(),
                 )?;
-                submitted -= u32::try_from(ret).unwrap();
+                to_submit -= u32::try_from(ret).unwrap();
             }
+            flushed
         } else if self.kflags & IORING_SQ_NEED_WAKEUP != 0 {
+            // the kernel has signalled to us that the
+            // SQPOLL thread that checks the submission
+            // queue has terminated due to inactivity,
+            // and needs to be restarted.
             let to_submit = self.sqe_tail - self.sqe_head;
             let _ = Measure::new(&M.enter_sqe);
             enter(
@@ -195,8 +203,11 @@ impl Sq {
                 IORING_ENTER_SQ_WAKEUP,
                 std::ptr::null_mut(),
             )?;
-        }
+            0
+        } else {
+            0
+        };
         assert_eq!(self.kdropped.load(Relaxed), 0);
-        Ok(())
+        Ok(u64::from(submitted))
     }
 }

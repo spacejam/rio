@@ -7,7 +7,7 @@ use std::{
     os::unix::io::AsRawFd,
     sync::{
         atomic::{
-            AtomicU32,
+            AtomicU32, AtomicU64,
             Ordering::{Acquire, Relaxed, Release},
         },
         Arc, Condvar, Mutex,

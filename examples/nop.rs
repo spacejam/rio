@@ -16,14 +16,12 @@ fn main() -> Result<()> {
 
     let pre = std::time::Instant::now();
 
-    for _ in 0..(1024 * 1024) {
+    for _ in 0..(1_000_000) {
         let completion = ring.nop()?;
         completions.push(completion);
     }
 
     let post_submit = std::time::Instant::now();
-
-    ring.submit_all()?;
 
     for completion in completions.into_iter() {
         completion.wait().unwrap();

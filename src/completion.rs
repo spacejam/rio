@@ -6,7 +6,7 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-use super::{Measure, M};
+use super::{Measure, Rio, M};
 
 #[derive(Debug)]
 struct CompletionState<C> {
@@ -31,6 +31,8 @@ pub struct Completion<'a, C> {
     lifetime: PhantomData<&'a ()>,
     mu: Arc<Mutex<CompletionState<C>>>,
     cv: Arc<Condvar>,
+    uring: &'a Rio,
+    pub(crate) sqe_id: u64,
 }
 
 /// The completer side of the Future
@@ -42,7 +44,9 @@ pub struct Filler<C> {
 
 /// Create a new `Filler` and the `Completion`
 /// that will be filled by its completion.
-pub fn pair<'a, C>() -> (Completion<'a, C>, Filler<C>) {
+pub fn pair<'a, C>(
+    uring: &'a Rio,
+) -> (Completion<'a, C>, Filler<C>) {
     let mu =
         Arc::new(Mutex::new(CompletionState::default()));
     let cv = Arc::new(Condvar::new());
@@ -50,6 +54,8 @@ pub fn pair<'a, C>() -> (Completion<'a, C>, Filler<C>) {
         lifetime: PhantomData,
         mu: mu.clone(),
         cv: cv.clone(),
+        sqe_id: 0,
+        uring,
     };
     let filler = Filler { mu, cv };
 
@@ -64,6 +70,16 @@ impl<'a, C> Completion<'a, C> {
     }
 
     fn wait_inner(&self) -> Option<C> {
+        debug_assert_ne!(
+            self.sqe_id,
+            0,
+            "sqe_id was never filled-in for this Completion",
+        );
+
+        self.uring
+            .ensure_submitted(self.sqe_id)
+            .expect("failed to submit SQE from wait_inner");
+
         let _ = Measure::new(&M.wait);
 
         let mut inner = self.mu.lock().unwrap();

@@ -9,6 +9,8 @@ pub struct Uring {
     flags: u32,
     ring_fd: i32,
     config: Config,
+    loaded: AtomicU64,
+    submitted: AtomicU64,
 }
 
 #[allow(unsafe_code)]
@@ -38,7 +40,8 @@ impl Drop for Uring {
             );
         }
 
-        if let Err(e) = self.submit_all() {
+        let current = self.loaded.load(Acquire);
+        if let Err(e) = self.ensure_submitted(current) {
             eprintln!(
                 "failed to submit pending items: {:?}",
                 e
@@ -68,6 +71,8 @@ impl Uring {
             config,
             in_flight: in_flight,
             ticket_queue: ticket_queue,
+            loaded: 0.into(),
+            submitted: 0.into(),
         }
     }
 
@@ -76,13 +81,61 @@ impl Uring {
     /// be avoided by using the `SQPOLL` mode
     /// (a privileged operation) on the `Config`
     /// struct.
+    ///
+    /// Note that this is performed automatically
+    /// and in a more fine-grained way when a
+    /// `Completion` is consumed via `Completion::wait`
+    /// or awaited in a Future context.
+    ///
+    /// You don't need to call this if you are
+    /// calling `.wait()` or `.await` on the
+    /// `Completion` quickly, but if you are
+    /// doing some other stuff that could take
+    /// a while first, calling this will ensure
+    /// that the operation is being executed
+    /// by the kernel in the mean time.
     pub fn submit_all(&self) -> io::Result<()> {
         let mut sq = {
             let _get_sq_mu = Measure::new(&M.sq_mu_wait);
             self.sq.lock().unwrap()
         };
         let _hold_sq_mu = Measure::new(&M.sq_mu_hold);
-        sq.submit_all(self.flags, self.ring_fd)
+        sq.submit_all(self.flags, self.ring_fd).map(|_| ())
+    }
+
+    pub fn ensure_submitted(
+        &self,
+        sqe_id: u64,
+    ) -> io::Result<()> {
+        let current = self.submitted.load(Acquire);
+        if current >= sqe_id {
+            return Ok(());
+        }
+        let mut sq = {
+            let _get_sq_mu = Measure::new(&M.sq_mu_wait);
+            self.sq.lock().unwrap()
+        };
+        let _hold_sq_mu = Measure::new(&M.sq_mu_hold);
+        let submitted =
+            sq.submit_all(self.flags, self.ring_fd)?;
+        let old =
+            self.submitted.fetch_add(submitted, Release);
+
+        if self.flags & IORING_SETUP_SQPOLL == 0 {
+            // we only check this if we're running in
+            // non-SQPOLL mode where we have to manually
+            // push our submissions to the kernel.
+            assert!(
+                old + submitted >= sqe_id,
+                "failed to submit our expected SQE on ensure_submitted. \
+                expected old {} + submitted {} to be >= sqe_id {}",
+                old,
+                submitted,
+                sqe_id,
+            );
+        }
+
+        Ok(())
     }
 
     /// Flushes all buffered writes, and associated
@@ -440,7 +493,7 @@ impl Uring {
         F: FnOnce(&mut io_uring_sqe),
     {
         let ticket = self.ticket_queue.pop();
-        let (completion, filler) = pair();
+        let (mut completion, filler) = pair(self);
 
         let iovec_ptr =
             self.in_flight.insert(ticket, iovec, filler);
@@ -451,6 +504,9 @@ impl Uring {
         };
         let _hold_sq_mu = Measure::new(&M.sq_mu_hold);
 
+        completion.sqe_id =
+            self.loaded.fetch_add(1, Release) + 1;
+
         let sqe = {
             let _get_sqe = Measure::new(&M.get_sqe);
             loop {
@@ -459,10 +515,12 @@ impl Uring {
                 {
                     break sqe;
                 } else {
-                    sq.submit_all(
+                    let submitted = sq.submit_all(
                         self.flags,
                         self.ring_fd,
                     )?;
+                    self.submitted
+                        .fetch_add(submitted, Release);
                 };
             }
         };
