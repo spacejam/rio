@@ -4,7 +4,7 @@
 
 # rio
 
-pre-alpha misuse-resistant bindings for io_uring, focusing
+misuse-resistant bindings for io_uring, focusing
 on users who want to do high-performance storage.
 
 * only relies on libc, no need for c/bindgen to complicate things, nobody wants that
@@ -34,10 +34,10 @@ let file = std::fs::open("poop_file").expect("openat");
 let dater: &[u8] = &[0; 66];
 let completion = ring.read(&file, &dater, at)?;
 
-// if using threaddies
+// if using threads
 completion.wait()?;
 
-// if using asyncus
+// if using async
 completion.await?
 ```
 
@@ -49,10 +49,10 @@ let file = std::fs::create("poop_file").expect("openat");
 let dater: &[u8] = &[6; 66];
 let completion = ring.read_at(&file, &dater, at)?;
 
-// if using threadulous
+// if using threads
 completion.wait()?;
 
-// if using asyncoos
+// if using async
 completion.await?
 ```
 
@@ -127,5 +127,3 @@ fn main() -> Result<()> {
     Ok(())
 }
 ```
-
-btw if ur here from the internet u can fuck right the F off
