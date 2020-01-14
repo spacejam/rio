@@ -114,6 +114,11 @@ impl Uring {
 
     /// Asynchronously accepts a `TcpStream` from
     /// a provided `TcpListener`.
+    ///
+    /// # Warning
+    ///
+    /// This only becomes usable on linux kernels
+    /// 5.5 and up.
     pub fn accept<'uring, 'listener>(
         &'uring self,
         tcp_listener: &'listener TcpListener,
@@ -138,6 +143,11 @@ impl Uring {
     ///
     /// Returns the length that was successfully
     /// written.
+    ///
+    /// # Warning
+    ///
+    /// This only becomes usable on linux kernels
+    /// 5.6 and up.
     pub fn send<'uring, 'stream, 'buf, F, B>(
         &'uring self,
         stream: &'stream F,
@@ -160,6 +170,11 @@ impl Uring {
     /// written.
     ///
     /// Accepts an `Ordering` specification.
+    ///
+    /// # Warning
+    ///
+    /// This only becomes usable on linux kernels
+    /// 5.6 and up.
     pub fn send_ordered<'uring, 'stream, 'buf, F, B>(
         &'uring self,
         stream: &'stream F,
@@ -194,6 +209,11 @@ impl Uring {
     ///
     /// Returns the length that was successfully
     /// read.
+    ///
+    /// # Warning
+    ///
+    /// This only becomes usable on linux kernels
+    /// 5.6 and up.
     pub fn recv<'uring, 'stream, 'buf, F, B>(
         &'uring self,
         stream: &'stream F,
@@ -217,6 +237,11 @@ impl Uring {
     /// read.
     ///
     /// Accepts an `Ordering` specification.
+    ///
+    /// # Warning
+    ///
+    /// This only becomes usable on linux kernels
+    /// 5.6 and up.
     pub fn recv_ordered<'uring, 'stream, 'buf, F, B>(
         &'uring self,
         stream: &'stream F,
