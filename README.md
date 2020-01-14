@@ -48,10 +48,20 @@ io_uring is the biggest thing to happen to the
 linux kernel in a very long time. It will change
 everything. Anything that uses epoll right now
 will be rewritten to use io_uring if it wants
-to stay relevant. I built rio to gain an early
-deep understanding of this amazing new interface,
-so that I could use it ASAP  and responsibly with
-[sled](http://sled.rs).
+to stay relevant. It started as a way to do real
+async disk IO without needing to use O_DIRECT, but
+its scope has expanded and it will continue to support
+more and more kernel functionality over time due to
+its ability to batch large numbers different syscalls.
+In kernel 5.5 support is added for more networking
+operations like `accept(2)`, `sendmsg(2)`, and `recvmsg(2)`.
+In 5.6 support is being added for `recv(2)` and `send(2)`.
+io_uring [has been measured to dramatically outperform
+epoll-based networking, with io_uring outperforming
+epoll-based setups more and more under heavier load](https://twitter.com/markpapadakis/status/1216978559601926145).
+I started rio to gain an early deep understanding of this
+amazing new interface, so that I could use it ASAP and
+responsibly with [sled](http://sled.rs).
 
 io_uring unlocks the following kernel features:
 
@@ -76,8 +86,9 @@ io_uring unlocks the following kernel features:
 
 To read more about io_uring, check out:
 
-* [Efficient IO with io_uring](https://kernel.dk/io_uring.pdf)
 * [Ringing in a new asynchronous I/O API](https://lwn.net/Articles/776703/)
+* [Efficient IO with io_uring](https://kernel.dk/io_uring.pdf)
+* [What’s new with io_uring](https://kernel.dk/io_uring-whatsnew.pdf)
 * Follow [Jens Axboe on Twitter](https://twitter.com/axboe) to follow dev progress
 
 #### why not use those other Rust io_uring libraries?
