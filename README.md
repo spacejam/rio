@@ -108,7 +108,7 @@ file reading:
 ```rust
 let mut ring = rio::new().expect("create uring");
 let file = std::fs::open("file").expect("openat");
-let dater: &mut [u8] = &[0; 66];
+let dater: &mut [u8] = &mut [0; 66];
 let completion = ring.read(&file, &mut dater, at)?;
 
 // if using threads
