@@ -21,17 +21,18 @@ unsafe impl Sync for Uring {}
 
 impl Drop for Uring {
     fn drop(&mut self) {
-        let poison_pill_res = self.with_sqe(None, |sqe| {
-            sqe.prep_rw(
-                IORING_OP_NOP,
-                0,
-                1,
-                0,
-                Ordering::Drain,
-            );
-            // set the poison pill
-            sqe.user_data ^= u64::max_value();
-        });
+        let poison_pill_res =
+            self.with_sqe::<_, ()>(None, |sqe| {
+                sqe.prep_rw(
+                    IORING_OP_NOP,
+                    0,
+                    1,
+                    0,
+                    Ordering::Drain,
+                );
+                // set the poison pill
+                sqe.user_data ^= u64::max_value();
+            });
 
         if let Err(e) = poison_pill_res {
             eprintln!(
@@ -76,33 +77,6 @@ impl Uring {
         }
     }
 
-    /// Block until all items in the submission queue
-    /// are submitted to the kernel. This can
-    /// be avoided by using the `SQPOLL` mode
-    /// (a privileged operation) on the `Config`
-    /// struct.
-    ///
-    /// Note that this is performed automatically
-    /// and in a more fine-grained way when a
-    /// `Completion` is consumed via `Completion::wait`
-    /// or awaited in a Future context.
-    ///
-    /// You don't need to call this if you are
-    /// calling `.wait()` or `.await` on the
-    /// `Completion` quickly, but if you are
-    /// doing some other stuff that could take
-    /// a while first, calling this will ensure
-    /// that the operation is being executed
-    /// by the kernel in the mean time.
-    pub fn submit_all(&self) -> io::Result<()> {
-        let mut sq = {
-            let _get_sq_mu = Measure::new(&M.sq_mu_wait);
-            self.sq.lock().unwrap()
-        };
-        let _hold_sq_mu = Measure::new(&M.sq_mu_hold);
-        sq.submit_all(self.flags, self.ring_fd).map(|_| ())
-    }
-
     pub(crate) fn ensure_submitted(
         &self,
         sqe_id: u64,
@@ -138,6 +112,139 @@ impl Uring {
         Ok(())
     }
 
+    /// Asynchronously accepts a `TcpStream` from
+    /// a provided `TcpListener`.
+    pub fn accept<'uring, 'listener>(
+        &'uring self,
+        tcp_listener: &'listener TcpListener,
+    ) -> io::Result<Completion<'listener, TcpStream>>
+    where
+        'listener: 'uring,
+        'uring: 'listener,
+    {
+        self.with_sqe(None, |sqe| {
+            sqe.prep_rw(
+                IORING_OP_ACCEPT,
+                tcp_listener.as_raw_fd(),
+                0,
+                0,
+                Ordering::None,
+            )
+        })
+    }
+
+    /// Send a buffer to the target socket
+    /// or file-like destination.
+    ///
+    /// Returns the length that was successfully
+    /// written.
+    pub fn send<'uring, 'stream, 'buf, F, B>(
+        &'uring self,
+        stream: &'stream F,
+        iov: B,
+    ) -> io::Result<Completion<'buf, usize>>
+    where
+        'stream: 'uring + 'buf,
+        'buf: 'uring + 'stream,
+        'uring: 'buf + 'stream,
+        F: AsRawFd,
+        B: 'buf + AsIoVec,
+    {
+        self.send_ordered(stream, iov, Ordering::None)
+    }
+
+    /// Send a buffer to the target socket
+    /// or file-like destination.
+    ///
+    /// Returns the length that was successfully
+    /// written.
+    ///
+    /// Accepts an `Ordering` specification.
+    pub fn send_ordered<'uring, 'stream, 'buf, F, B>(
+        &'uring self,
+        stream: &'stream F,
+        iov: B,
+        ordering: Ordering,
+    ) -> io::Result<Completion<'buf, usize>>
+    where
+        'stream: 'uring + 'buf,
+        'buf: 'uring + 'stream,
+        'uring: 'buf + 'stream,
+        F: AsRawFd,
+        B: 'buf + AsIoVec,
+    {
+        let iov = iov.into_new_iovec();
+
+        self.with_sqe(None, |sqe| {
+            sqe.prep_rw(
+                IORING_OP_SEND,
+                stream.as_raw_fd(),
+                0,
+                0,
+                ordering,
+            );
+            sqe.addr = iov.iov_base as u64;
+            sqe.len = u32::try_from(iov.iov_len).unwrap();
+        })
+    }
+
+    /// Receive data from the target socket
+    /// or file-like destination, and place
+    /// it in the given buffer.
+    ///
+    /// Returns the length that was successfully
+    /// read.
+    pub fn recv<'uring, 'stream, 'buf, F, B>(
+        &'uring self,
+        stream: &'stream F,
+        iov: B,
+    ) -> io::Result<Completion<'buf, usize>>
+    where
+        'stream: 'uring + 'buf,
+        'buf: 'uring + 'stream,
+        'uring: 'buf + 'stream,
+        F: AsRawFd,
+        B: 'buf + AsIoVec + AsIoVecMut,
+    {
+        self.send_ordered(stream, iov, Ordering::None)
+    }
+
+    /// Receive data from the target socket
+    /// or file-like destination, and place
+    /// it in the given buffer.
+    ///
+    /// Returns the length that was successfully
+    /// read.
+    ///
+    /// Accepts an `Ordering` specification.
+    pub fn recv_ordered<'uring, 'stream, 'buf, F, B>(
+        &'uring self,
+        stream: &'stream F,
+        iov: B,
+        ordering: Ordering,
+    ) -> io::Result<Completion<'buf, usize>>
+    where
+        'stream: 'uring + 'buf,
+        'buf: 'uring + 'stream,
+        'uring: 'buf + 'stream,
+        F: AsRawFd,
+        B: 'buf + AsIoVec + AsIoVecMut,
+    {
+        let iov = iov.into_new_iovec();
+
+        self.with_sqe(None, |sqe| {
+            sqe.prep_rw(
+                IORING_OP_RECV,
+                stream.as_raw_fd(),
+                0,
+                0,
+                ordering,
+            );
+            sqe.addr = iov.iov_base as u64;
+            sqe.len = u32::try_from(iov.iov_len).unwrap();
+        })
+    }
+
     /// Flushes all buffered writes, and associated
     /// metadata changes.
     ///
@@ -161,9 +268,7 @@ impl Uring {
     pub fn fsync<'uring, 'file>(
         &'uring self,
         file: &'file File,
-    ) -> io::Result<
-        Completion<'file, io::Result<io_uring_cqe>>,
-    >
+    ) -> io::Result<Completion<'file, ()>>
     where
         'file: 'uring,
         'uring: 'file,
@@ -203,9 +308,7 @@ impl Uring {
         &'uring self,
         file: &'file File,
         ordering: Ordering,
-    ) -> io::Result<
-        Completion<'file, io::Result<io_uring_cqe>>,
-    >
+    ) -> io::Result<Completion<'file, ()>>
     where
         'file: 'uring,
         'uring: 'file,
@@ -242,9 +345,7 @@ impl Uring {
     pub fn fdatasync<'uring, 'file>(
         &'uring self,
         file: &'file File,
-    ) -> io::Result<
-        Completion<'file, io::Result<io_uring_cqe>>,
-    >
+    ) -> io::Result<Completion<'file, ()>>
     where
         'file: 'uring,
         'uring: 'file,
@@ -285,9 +386,7 @@ impl Uring {
         &'uring self,
         file: &'file File,
         ordering: Ordering,
-    ) -> io::Result<
-        Completion<'file, io::Result<io_uring_cqe>>,
-    >
+    ) -> io::Result<Completion<'file, ()>>
     where
         'file: 'uring,
         'uring: 'file,
@@ -318,9 +417,7 @@ impl Uring {
         file: &'file F,
         iov: B,
         at: u64,
-    ) -> io::Result<
-        Completion<'buf, io::Result<io_uring_cqe>>,
-    >
+    ) -> io::Result<Completion<'buf, usize>>
     where
         'file: 'uring + 'buf,
         'buf: 'uring + 'file,
@@ -360,9 +457,7 @@ impl Uring {
         iov: B,
         at: u64,
         ordering: Ordering,
-    ) -> io::Result<
-        Completion<'buf, io::Result<io_uring_cqe>>,
-    >
+    ) -> io::Result<Completion<'buf, usize>>
     where
         'file: 'uring + 'buf,
         'buf: 'uring + 'file,
@@ -396,9 +491,7 @@ impl Uring {
         file: &'file F,
         iov: &'buf B,
         at: u64,
-    ) -> io::Result<
-        Completion<'buf, io::Result<io_uring_cqe>>,
-    >
+    ) -> io::Result<Completion<'buf, usize>>
     where
         'file: 'uring + 'buf,
         'buf: 'uring + 'file,
@@ -436,9 +529,7 @@ impl Uring {
         iov: &'buf B,
         at: u64,
         ordering: Ordering,
-    ) -> io::Result<
-        Completion<'buf, io::Result<io_uring_cqe>>,
-    >
+    ) -> io::Result<Completion<'buf, usize>>
     where
         'file: 'uring + 'buf,
         'buf: 'uring + 'file,
@@ -461,9 +552,7 @@ impl Uring {
     /// mostly for debugging and tuning.
     pub fn nop<'uring>(
         &'uring self,
-    ) -> io::Result<
-        Completion<'uring, io::Result<io_uring_cqe>>,
-    > {
+    ) -> io::Result<Completion<'uring, ()>> {
         self.nop_ordered(Ordering::None)
     }
 
@@ -472,25 +561,49 @@ impl Uring {
     pub fn nop_ordered<'uring>(
         &'uring self,
         ordering: Ordering,
-    ) -> io::Result<
-        Completion<'uring, io::Result<io_uring_cqe>>,
-    > {
+    ) -> io::Result<Completion<'uring, ()>> {
         self.with_sqe(None, |sqe| {
             sqe.prep_rw(IORING_OP_NOP, 0, 1, 0, ordering)
         })
     }
 
-    fn with_sqe<'uring, 'buf, F>(
+    /// Block until all items in the submission queue
+    /// are submitted to the kernel. This can
+    /// be avoided by using the `SQPOLL` mode
+    /// (a privileged operation) on the `Config`
+    /// struct.
+    ///
+    /// Note that this is performed automatically
+    /// and in a more fine-grained way when a
+    /// `Completion` is consumed via `Completion::wait`
+    /// or awaited in a Future context.
+    ///
+    /// You don't need to call this if you are
+    /// calling `.wait()` or `.await` on the
+    /// `Completion` quickly, but if you are
+    /// doing some other stuff that could take
+    /// a while first, calling this will ensure
+    /// that the operation is being executed
+    /// by the kernel in the mean time.
+    pub fn submit_all(&self) -> io::Result<()> {
+        let mut sq = {
+            let _get_sq_mu = Measure::new(&M.sq_mu_wait);
+            self.sq.lock().unwrap()
+        };
+        let _hold_sq_mu = Measure::new(&M.sq_mu_hold);
+        sq.submit_all(self.flags, self.ring_fd).map(|_| ())
+    }
+
+    fn with_sqe<'uring, 'buf, F, C>(
         &'uring self,
         iovec: Option<libc::iovec>,
         f: F,
-    ) -> io::Result<
-        Completion<'buf, io::Result<io_uring_cqe>>,
-    >
+    ) -> io::Result<Completion<'buf, C>>
     where
         'buf: 'uring,
         'uring: 'buf,
         F: FnOnce(&mut io_uring_sqe),
+        C: FromCqe,
     {
         let ticket = self.ticket_queue.pop();
         let (mut completion, filler) = pair(self);

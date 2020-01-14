@@ -296,3 +296,25 @@ impl<A: ?Sized + AsRef<[u8]>> AsIoVec for A {
 pub trait AsIoVecMut {}
 
 impl<A: ?Sized + AsMut<[u8]>> AsIoVecMut for A {}
+
+/// A trait for describing transformations from the
+/// `io_uring_cqe` type into an expected meaningful
+/// high-level result.
+pub trait FromCqe {
+    /// Describes a conversion from a successful
+    /// `io_uring_cqe` to a desired output type.
+    fn from_cqe(cqe: io_uring::io_uring_cqe) -> Self;
+}
+
+impl FromCqe for usize {
+    fn from_cqe(cqe: io_uring::io_uring_cqe) -> usize {
+        use std::convert::TryFrom;
+        usize::try_from(cqe.res).unwrap()
+    }
+}
+
+impl FromCqe for () {
+    fn from_cqe(_: io_uring::io_uring_cqe) -> () {
+        ()
+    }
+}

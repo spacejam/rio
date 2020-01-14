@@ -2,9 +2,7 @@ use super::*;
 
 pub(crate) struct InFlight {
     iovecs: UnsafeCell<Vec<libc::iovec>>,
-    fillers: UnsafeCell<
-        Vec<Option<Filler<io::Result<io_uring_cqe>>>>,
-    >,
+    fillers: UnsafeCell<Vec<Option<Filler>>>,
 }
 
 impl std::fmt::Debug for InFlight {
@@ -37,7 +35,7 @@ impl InFlight {
         &self,
         ticket: usize,
         iovec: Option<libc::iovec>,
-        filler: Filler<io::Result<io_uring_cqe>>,
+        filler: Filler,
     ) -> *mut libc::iovec {
         #[allow(unsafe_code)]
         unsafe {
@@ -57,7 +55,7 @@ impl InFlight {
     pub(crate) fn take_filler(
         &self,
         ticket: usize,
-    ) -> Filler<io::Result<io_uring_cqe>> {
+    ) -> Filler {
         #[allow(unsafe_code)]
         unsafe {
             (*self.fillers.get())[ticket].take().unwrap()

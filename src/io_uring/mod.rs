@@ -3,8 +3,9 @@ use std::{
     convert::TryFrom,
     fs::File,
     io,
+    net::{TcpListener, TcpStream},
     ops::Neg,
-    os::unix::io::AsRawFd,
+    os::unix::io::{AsRawFd, FromRawFd},
     sync::{
         atomic::{
             AtomicU32, AtomicU64,
@@ -15,8 +16,8 @@ use std::{
 };
 
 use super::{
-    pair, AsIoVec, AsIoVecMut, Completion, Filler, Measure,
-    M,
+    pair, AsIoVec, AsIoVecMut, Completion, Filler, FromCqe,
+    Measure, M,
 };
 
 mod config;
@@ -29,7 +30,7 @@ mod syscall;
 mod ticket_queue;
 mod uring;
 
-use {
+pub(crate) use {
     constants::*,
     cq::Cq,
     in_flight::InFlight,
@@ -84,5 +85,14 @@ fn uring_mmap(
             ring_fd,
             offset,
         )
+    }
+}
+
+impl FromCqe for TcpStream {
+    fn from_cqe(cqe: io_uring_cqe) -> TcpStream {
+        #[allow(unsafe_code)]
+        unsafe {
+            TcpStream::from_raw_fd(cqe.res)
+        }
     }
 }

@@ -1,22 +1,25 @@
 use std::{
     future::Future,
+    io,
     marker::PhantomData,
     pin::Pin,
     sync::{Arc, Condvar, Mutex},
     task::{Context, Poll, Waker},
 };
 
-use super::{Measure, Rio, M};
+use super::{
+    io_uring::io_uring_cqe, FromCqe, Measure, Rio, M,
+};
 
 #[derive(Debug)]
-struct CompletionState<C> {
+struct CompletionState {
     done: bool,
-    item: Option<C>,
+    item: Option<io::Result<io_uring_cqe>>,
     waker: Option<Waker>,
 }
 
-impl<C> Default for CompletionState<C> {
-    fn default() -> CompletionState<C> {
+impl Default for CompletionState {
+    fn default() -> CompletionState {
         CompletionState {
             done: false,
             item: None,
@@ -27,9 +30,9 @@ impl<C> Default for CompletionState<C> {
 
 /// A Future value which may or may not be filled
 #[derive(Debug)]
-pub struct Completion<'a, C> {
-    lifetime: PhantomData<&'a ()>,
-    mu: Arc<Mutex<CompletionState<C>>>,
+pub struct Completion<'a, C: FromCqe> {
+    lifetime: PhantomData<&'a C>,
+    mu: Arc<Mutex<CompletionState>>,
     cv: Arc<Condvar>,
     uring: &'a Rio,
     pub(crate) sqe_id: u64,
@@ -37,16 +40,16 @@ pub struct Completion<'a, C> {
 
 /// The completer side of the Future
 #[derive(Debug)]
-pub struct Filler<C> {
-    mu: Arc<Mutex<CompletionState<C>>>,
+pub struct Filler {
+    mu: Arc<Mutex<CompletionState>>,
     cv: Arc<Condvar>,
 }
 
 /// Create a new `Filler` and the `Completion`
 /// that will be filled by its completion.
-pub fn pair<'a, C>(
+pub fn pair<'a, C: FromCqe>(
     uring: &'a Rio,
-) -> (Completion<'a, C>, Filler<C>) {
+) -> (Completion<'a, C>, Filler) {
     let mu =
         Arc::new(Mutex::new(CompletionState::default()));
     let cv = Arc::new(Condvar::new());
@@ -62,14 +65,20 @@ pub fn pair<'a, C>(
     (future, filler)
 }
 
-impl<'a, C> Completion<'a, C> {
+impl<'a, C: FromCqe> Completion<'a, C> {
     /// Block on the `Completion`'s completion
     /// or dropping of the `Filler`
-    pub fn wait(self) -> C {
+    pub fn wait(self) -> io::Result<C>
+    where
+        C: FromCqe,
+    {
         self.wait_inner().unwrap()
     }
 
-    fn wait_inner(&self) -> Option<C> {
+    fn wait_inner(&self) -> Option<io::Result<C>>
+    where
+        C: FromCqe,
+    {
         debug_assert_ne!(
             self.sqe_id,
             0,
@@ -88,18 +97,20 @@ impl<'a, C> Completion<'a, C> {
             inner = self.cv.wait(inner).unwrap();
         }
 
-        return inner.item.take();
+        return inner.item.take().map(|io_result| {
+            io_result.map(FromCqe::from_cqe)
+        });
     }
 }
 
-impl<'a, C> Drop for Completion<'a, C> {
+impl<'a, C: FromCqe> Drop for Completion<'a, C> {
     fn drop(&mut self) {
         self.wait_inner();
     }
 }
 
-impl<'a, C> Future for Completion<'a, C> {
-    type Output = C;
+impl<'a, C: FromCqe> Future for Completion<'a, C> {
+    type Output = io::Result<C>;
 
     fn poll(
         self: Pin<&mut Self>,
@@ -107,7 +118,13 @@ impl<'a, C> Future for Completion<'a, C> {
     ) -> Poll<Self::Output> {
         let mut state = self.mu.lock().unwrap();
         if state.item.is_some() {
-            Poll::Ready(state.item.take().unwrap())
+            Poll::Ready(
+                state
+                    .item
+                    .take()
+                    .unwrap()
+                    .map(FromCqe::from_cqe),
+            )
         } else {
             if !state.done {
                 state.waker = Some(cx.waker().clone());
@@ -117,9 +134,9 @@ impl<'a, C> Future for Completion<'a, C> {
     }
 }
 
-impl<C> Filler<C> {
+impl Filler {
     /// Complete the `Completion`
-    pub fn fill(self, inner: C) {
+    pub fn fill(self, inner: io::Result<io_uring_cqe>) {
         let mut state = self.mu.lock().unwrap();
 
         if let Some(waker) = state.waker.take() {
