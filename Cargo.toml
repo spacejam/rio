@@ -1,6 +1,6 @@
 [package]
 name = "rio"
-version = "0.6.2"
+version = "0.7.0"
 authors = ["Tyler Neely <t@jujit.su>"]
 edition = "2018"
 description = "GPL-3.0 nice bindings for io_uring. MIT/Apache-2.0 license is available for spacejam's github sponsors."
@@ -11,6 +11,9 @@ keywords = ["networking", "io-uring", "io_uring", "uring", "io"]
 categories = ["asynchronous", "concurrency", "filesystem", "network-programming", "os"]
 documentation = "https://docs.rs/rio/"
 readme = "README.md"
+
+[badges]
+maintenance { status = "actively-developed" }
 
 [profile.release]
 debug = true
