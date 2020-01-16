@@ -65,16 +65,17 @@ responsibly with [sled](http://sled.rs).
 
 io_uring unlocks the following kernel features:
 
-* real, fully-async disk IO without using O_DIRECT
-  as you have to do with AIO
+* fully-async interface for a growing number of syscalls
+* async disk IO without using O_DIRECT as you have
+  to do with AIO
 * batching hundreds of disk and network IO operations
   into a single syscall, which is especially wonderful
   in a post-meltdown/spectre world where our syscalls have
   [dramatically slowed down](http://www.brendangregg.com/blog/2018-02-09/kpti-kaiser-meltdown-performance.html)
 * 0-syscall IO operation submission, if configured in
   SQPOLL mode
-* 0-syscall IO operation completion polling, unless
-  configured in IOPOLL mode.
+* configurable completion polling for trading CPU for
+  low latency
 * Allows expression of sophisticated 0-copy broadcast
   semantics, similar to splice(2) or sendfile(2) but
   working with many file-like objects without ever
@@ -90,6 +91,9 @@ To read more about io_uring, check out:
 * [Efficient IO with io_uring](https://kernel.dk/io_uring.pdf)
 * [What’s new with io_uring](https://kernel.dk/io_uring-whatsnew.pdf)
 * Follow [Jens Axboe on Twitter](https://twitter.com/axboe) to follow dev progress
+
+For some slides with interesting io_uring performance results,
+check out slides 43-53 of [this presentation deck by Jens](https://www.slideshare.net/ennael/kernel-recipes-2019-faster-io-through-iouring).
 
 #### why not use those other Rust io_uring libraries?
 
