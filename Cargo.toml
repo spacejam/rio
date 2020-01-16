@@ -21,6 +21,9 @@ debug = true
 [profile.dev]
 debug = true
 
+[dev-dependencies]
+extreme = "666.666.666"
+
 [dependencies]
 libc = "0.2.66"
 
