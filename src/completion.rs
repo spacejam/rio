@@ -116,6 +116,10 @@ impl<'a, C: FromCqe> Future for Completion<'a, C> {
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Self::Output> {
+        self.uring
+            .ensure_submitted(self.sqe_id)
+            .expect("failed to submit SQE from wait_inner");
+
         let mut state = self.mu.lock().unwrap();
         if state.item.is_some() {
             Poll::Ready(
