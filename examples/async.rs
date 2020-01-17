@@ -26,11 +26,9 @@ fn main() -> io::Result<()> {
 
     extreme::run(async {
         // kernel 5.5 and later support TCP accept
-        for stream_res in acceptor.incoming() {
-            let stream = stream_res?;
+        loop {
+            let stream = ring.accept(&acceptor)?.await?;
             proxy(&ring, &stream, &stream).await;
         }
-
-        Ok(())
     })
 }
