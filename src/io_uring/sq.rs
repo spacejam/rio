@@ -8,7 +8,7 @@ pub(crate) struct Sq {
     khead: &'static AtomicU32,
     ktail: &'static AtomicU32,
     kring_mask: &'static u32,
-    kflags: &'static u32,
+    kflags: &'static AtomicU32,
     kdropped: &'static AtomicU32,
     array: &'static mut [AtomicU32],
     sqes: &'static mut [io_uring_sqe],
@@ -100,7 +100,7 @@ impl Sq {
                     as *const u32),
                 kflags: &*(sq_ring_ptr
                     .add(params.sq_off.flags as usize)
-                    as *const u32),
+                    as *const AtomicU32),
                 kdropped: &*(sq_ring_ptr
                     .add(params.sq_off.dropped as usize)
                     as *const AtomicU32),
@@ -189,7 +189,10 @@ impl Sq {
                 to_submit -= u32::try_from(ret).unwrap();
             }
             flushed
-        } else if self.kflags & IORING_SQ_NEED_WAKEUP != 0 {
+        } else if self.kflags.load(Acquire)
+            & IORING_SQ_NEED_WAKEUP
+            != 0
+        {
             // the kernel has signalled to us that the
             // SQPOLL thread that checks the submission
             // queue has terminated due to inactivity,
