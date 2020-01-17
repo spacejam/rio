@@ -10,7 +10,7 @@ pub(crate) struct Sq {
     kring_mask: &'static u32,
     kflags: &'static u32,
     kdropped: &'static AtomicU32,
-    array: &'static mut [u32],
+    array: &'static mut [AtomicU32],
     sqes: &'static mut [io_uring_sqe],
     sqe_head: u32,
     sqe_tail: u32,
@@ -149,8 +149,8 @@ impl Sq {
 
         for _ in 0..to_submit {
             let index = ktail & mask;
-            self.array[index as usize] =
-                self.sqe_head & mask;
+            self.array[index as usize]
+                .store(self.sqe_head & mask, Release);
             ktail += 1;
             self.sqe_head += 1;
         }
