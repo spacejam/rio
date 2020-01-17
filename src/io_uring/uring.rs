@@ -119,14 +119,10 @@ impl Uring {
     ///
     /// This only becomes usable on linux kernels
     /// 5.5 and up.
-    pub fn accept<'uring, 'listener>(
-        &'uring self,
-        tcp_listener: &'listener TcpListener,
-    ) -> io::Result<Completion<'listener, TcpStream>>
-    where
-        'listener: 'uring,
-        'uring: 'listener,
-    {
+    pub fn accept<'a>(
+        &'a self,
+        tcp_listener: &'a TcpListener,
+    ) -> io::Result<Completion<'a, TcpStream>> {
         self.with_sqe(None, |sqe| {
             sqe.prep_rw(
                 IORING_OP_ACCEPT,
@@ -148,17 +144,14 @@ impl Uring {
     ///
     /// This only becomes usable on linux kernels
     /// 5.6 and up.
-    pub fn send<'uring, 'stream, 'buf, F, B>(
-        &'uring self,
-        stream: &'stream F,
+    pub fn send<'a, F, B>(
+        &'a self,
+        stream: &'a F,
         iov: B,
-    ) -> io::Result<Completion<'buf, usize>>
+    ) -> io::Result<Completion<'a, usize>>
     where
-        'stream: 'uring + 'buf,
-        'buf: 'uring + 'stream,
-        'uring: 'buf + 'stream,
         F: AsRawFd,
-        B: 'buf + AsIoVec,
+        B: 'a + AsIoVec,
     {
         self.send_ordered(stream, iov, Ordering::None)
     }
@@ -175,18 +168,15 @@ impl Uring {
     ///
     /// This only becomes usable on linux kernels
     /// 5.6 and up.
-    pub fn send_ordered<'uring, 'stream, 'buf, F, B>(
-        &'uring self,
-        stream: &'stream F,
+    pub fn send_ordered<'a, F, B>(
+        &'a self,
+        stream: &'a F,
         iov: B,
         ordering: Ordering,
-    ) -> io::Result<Completion<'buf, usize>>
+    ) -> io::Result<Completion<'a, usize>>
     where
-        'stream: 'uring + 'buf,
-        'buf: 'uring + 'stream,
-        'uring: 'buf + 'stream,
         F: AsRawFd,
-        B: 'buf + AsIoVec,
+        B: 'a + AsIoVec,
     {
         let iov = iov.into_new_iovec();
 
@@ -214,17 +204,14 @@ impl Uring {
     ///
     /// This only becomes usable on linux kernels
     /// 5.6 and up.
-    pub fn recv<'uring, 'stream, 'buf, F, B>(
-        &'uring self,
-        stream: &'stream F,
+    pub fn recv<'a, F, B>(
+        &'a self,
+        stream: &'a F,
         iov: B,
-    ) -> io::Result<Completion<'buf, usize>>
+    ) -> io::Result<Completion<'a, usize>>
     where
-        'stream: 'uring + 'buf,
-        'buf: 'uring + 'stream,
-        'uring: 'buf + 'stream,
         F: AsRawFd,
-        B: 'buf + AsIoVec + AsIoVecMut,
+        B: 'a + AsIoVec + AsIoVecMut,
     {
         self.send_ordered(stream, iov, Ordering::None)
     }
@@ -242,18 +229,15 @@ impl Uring {
     ///
     /// This only becomes usable on linux kernels
     /// 5.6 and up.
-    pub fn recv_ordered<'uring, 'stream, 'buf, F, B>(
-        &'uring self,
-        stream: &'stream F,
+    pub fn recv_ordered<'a, F, B>(
+        &'a self,
+        stream: &'a F,
         iov: B,
         ordering: Ordering,
-    ) -> io::Result<Completion<'buf, usize>>
+    ) -> io::Result<Completion<'a, usize>>
     where
-        'stream: 'uring + 'buf,
-        'buf: 'uring + 'stream,
-        'uring: 'buf + 'stream,
         F: AsRawFd,
-        B: 'buf + AsIoVec + AsIoVecMut,
+        B: 'a + AsIoVec + AsIoVecMut,
     {
         let iov = iov.into_new_iovec();
 
@@ -290,14 +274,10 @@ impl Uring {
     ///
     /// This does nothing for files opened in
     /// `O_DIRECT` mode.
-    pub fn fsync<'uring, 'file>(
-        &'uring self,
-        file: &'file File,
-    ) -> io::Result<Completion<'file, ()>>
-    where
-        'file: 'uring,
-        'uring: 'file,
-    {
+    pub fn fsync<'a>(
+        &'a self,
+        file: &'a File,
+    ) -> io::Result<Completion<'a, ()>> {
         self.fsync_ordered(file, Ordering::None)
     }
 
@@ -329,15 +309,11 @@ impl Uring {
     /// also fsync the parent directory.
     /// This does nothing for files opened in
     /// `O_DIRECT` mode.
-    pub fn fsync_ordered<'uring, 'file>(
-        &'uring self,
-        file: &'file File,
+    pub fn fsync_ordered<'a>(
+        &'a self,
+        file: &'a File,
         ordering: Ordering,
-    ) -> io::Result<Completion<'file, ()>>
-    where
-        'file: 'uring,
-        'uring: 'file,
-    {
+    ) -> io::Result<Completion<'a, ()>> {
         self.with_sqe(None, |sqe| {
             sqe.prep_rw(
                 IORING_OP_FSYNC,
@@ -367,14 +343,10 @@ impl Uring {
     /// also fsync the parent directory.
     /// This does nothing for files opened in
     /// `O_DIRECT` mode.
-    pub fn fdatasync<'uring, 'file>(
-        &'uring self,
-        file: &'file File,
-    ) -> io::Result<Completion<'file, ()>>
-    where
-        'file: 'uring,
-        'uring: 'file,
-    {
+    pub fn fdatasync<'a>(
+        &'a self,
+        file: &'a File,
+    ) -> io::Result<Completion<'a, ()>> {
         self.fdatasync_ordered(file, Ordering::None)
     }
 
@@ -407,15 +379,11 @@ impl Uring {
     /// also fsync the parent directory.
     /// This does nothing for files opened in
     /// `O_DIRECT` mode.
-    pub fn fdatasync_ordered<'uring, 'file>(
-        &'uring self,
-        file: &'file File,
+    pub fn fdatasync_ordered<'a>(
+        &'a self,
+        file: &'a File,
         ordering: Ordering,
-    ) -> io::Result<Completion<'file, ()>>
-    where
-        'file: 'uring,
-        'uring: 'file,
-    {
+    ) -> io::Result<Completion<'a, ()>> {
         self.with_sqe(None, |mut sqe| {
             sqe.prep_rw(
                 IORING_OP_FSYNC,
@@ -437,18 +405,15 @@ impl Uring {
     /// Note that the file argument is generic
     /// for anything that supports AsRawFd:
     /// sockets, files, etc...
-    pub fn write_at<'uring, 'file, 'buf, F, B>(
-        &'uring self,
-        file: &'file F,
+    pub fn write_at<'a, F, B>(
+        &'a self,
+        file: &'a F,
         iov: B,
         at: u64,
-    ) -> io::Result<Completion<'buf, usize>>
+    ) -> io::Result<Completion<'a, usize>>
     where
-        'file: 'uring + 'buf,
-        'buf: 'uring + 'file,
-        'uring: 'buf + 'file,
         F: AsRawFd,
-        B: 'buf + AsIoVec,
+        B: 'a + AsIoVec,
     {
         self.write_at_ordered(file, iov, at, Ordering::None)
     }
@@ -476,19 +441,16 @@ impl Uring {
     /// Note that the file argument is generic
     /// for anything that supports AsRawFd:
     /// sockets, files, etc...
-    pub fn write_at_ordered<'uring, 'file, 'buf, F, B>(
-        &'uring self,
-        file: &'file F,
+    pub fn write_at_ordered<'a, F, B>(
+        &'a self,
+        file: &'a F,
         iov: B,
         at: u64,
         ordering: Ordering,
-    ) -> io::Result<Completion<'buf, usize>>
+    ) -> io::Result<Completion<'a, usize>>
     where
-        'file: 'uring + 'buf,
-        'buf: 'uring + 'file,
-        'uring: 'buf + 'file,
         F: AsRawFd,
-        B: 'buf + AsIoVec,
+        B: 'a + AsIoVec,
     {
         self.with_sqe(Some(iov.into_new_iovec()), |sqe| {
             sqe.prep_rw(
@@ -511,16 +473,13 @@ impl Uring {
     /// Note that the file argument is generic
     /// for anything that supports AsRawFd:
     /// sockets, files, etc...
-    pub fn read_at<'uring, 'file, 'buf, F, B>(
-        &'uring self,
-        file: &'file F,
-        iov: &'buf B,
+    pub fn read_at<'a, F, B>(
+        &'a self,
+        file: &'a F,
+        iov: &'a B,
         at: u64,
-    ) -> io::Result<Completion<'buf, usize>>
+    ) -> io::Result<Completion<'a, usize>>
     where
-        'file: 'uring + 'buf,
-        'buf: 'uring + 'file,
-        'uring: 'buf + 'file,
         F: AsRawFd,
         B: AsIoVec + AsIoVecMut,
     {
@@ -548,17 +507,14 @@ impl Uring {
     /// Note that the file argument is generic
     /// for anything that supports AsRawFd:
     /// sockets, files, etc...
-    pub fn read_at_ordered<'uring, 'file, 'buf, F, B>(
-        &'uring self,
-        file: &'file F,
-        iov: &'buf B,
+    pub fn read_at_ordered<'a, F, B>(
+        &'a self,
+        file: &'a F,
+        iov: &'a B,
         at: u64,
         ordering: Ordering,
-    ) -> io::Result<Completion<'buf, usize>>
+    ) -> io::Result<Completion<'a, usize>>
     where
-        'file: 'uring + 'buf,
-        'buf: 'uring + 'file,
-        'uring: 'buf + 'file,
         F: AsRawFd,
         B: AsIoVec + AsIoVecMut,
     {
@@ -575,18 +531,18 @@ impl Uring {
 
     /// Don't do anything. This is
     /// mostly for debugging and tuning.
-    pub fn nop<'uring>(
-        &'uring self,
-    ) -> io::Result<Completion<'uring, ()>> {
+    pub fn nop<'a>(
+        &'a self,
+    ) -> io::Result<Completion<'a, ()>> {
         self.nop_ordered(Ordering::None)
     }
 
     /// Don't do anything. This is
     /// mostly for debugging and tuning.
-    pub fn nop_ordered<'uring>(
-        &'uring self,
+    pub fn nop_ordered<'a>(
+        &'a self,
         ordering: Ordering,
-    ) -> io::Result<Completion<'uring, ()>> {
+    ) -> io::Result<Completion<'a, ()>> {
         self.with_sqe(None, |sqe| {
             sqe.prep_rw(IORING_OP_NOP, 0, 1, 0, ordering)
         })
@@ -619,14 +575,12 @@ impl Uring {
         sq.submit_all(self.flags, self.ring_fd).map(|_| ())
     }
 
-    fn with_sqe<'uring, 'buf, F, C>(
-        &'uring self,
+    fn with_sqe<'a, F, C>(
+        &'a self,
         iovec: Option<libc::iovec>,
         f: F,
-    ) -> io::Result<Completion<'buf, C>>
+    ) -> io::Result<Completion<'a, C>>
     where
-        'buf: 'uring,
-        'uring: 'buf,
         F: FnOnce(&mut io_uring_sqe),
         C: FromCqe,
     {
