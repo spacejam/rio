@@ -7,15 +7,14 @@ async fn proxy(ring: &rio::Rio, a: &TcpStream, b: &TcpStream) -> io::Result<()> 
     // for kernel 5.6 and later, io_uring will support
     // recv/send which will more gracefully handle
     // reads of larger sizes.
-    let buf = vec![0_u8; 1];
+    let buf = vec![0_u8; 1024];
     loop {
-        let read = ring.read_at_ordered(
+        let read = ring.recv_ordered(
             a,
             &buf,
-            0,
             rio::Ordering::Link,
         )?;
-        let write = ring.write_at(b, &buf, 0)?;
+        let write = ring.send(b, &buf)?;
         read.await?;
         write.await?;
     }

@@ -207,13 +207,13 @@ impl Uring {
     pub fn recv<'a, F, B>(
         &'a self,
         stream: &'a F,
-        iov: B,
+        iov: &'a B,
     ) -> io::Result<Completion<'a, usize>>
     where
         F: AsRawFd,
-        B: 'a + AsIoVec + AsIoVecMut,
+        B: AsIoVec + AsIoVecMut,
     {
-        self.send_ordered(stream, iov, Ordering::None)
+        self.recv_ordered(stream, iov, Ordering::None)
     }
 
     /// Receive data from the target socket
@@ -232,12 +232,12 @@ impl Uring {
     pub fn recv_ordered<'a, F, B>(
         &'a self,
         stream: &'a F,
-        iov: B,
+        iov: &'a B,
         ordering: Ordering,
     ) -> io::Result<Completion<'a, usize>>
     where
         F: AsRawFd,
-        B: 'a + AsIoVec + AsIoVecMut,
+        B: AsIoVec + AsIoVecMut,
     {
         let iov = iov.into_new_iovec();
 
