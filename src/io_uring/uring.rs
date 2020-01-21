@@ -396,6 +396,77 @@ impl Uring {
         })
     }
 
+    /// Synchronizes the data associated with a range
+    /// in a file. Does not synchronize any metadata
+    /// updates, which can cause data loss if you
+    /// are not writing to a file whose metadata
+    /// has previously been synchronized.
+    ///
+    /// You probably want to have a prior write
+    /// linked to this, or set `Ordering::Drain`
+    /// by using `sync_file_range_ordered` instead.
+    ///
+    /// Under the hood, this uses the "pessimistic"
+    /// set of flags:
+    /// `SYNC_FILE_RANGE_WAIT_BEFORE |
+    /// SYNC_FILE_RANGE_WRITE |
+    /// SYNC_FILE_RANGE_WAIT_AFTER`
+    pub fn sync_file_range<'a>(
+        &'a self,
+        file: &'a File,
+        offset: u64,
+        len: usize,
+    ) -> io::Result<Completion<'a, ()>> {
+        self.sync_file_range_ordered(
+            file,
+            offset,
+            len,
+            Ordering::None,
+        )
+    }
+
+    /// Synchronizes the data associated with a range
+    /// in a file. Does not synchronize any metadata
+    /// updates, which can cause data loss if you
+    /// are not writing to a file whose metadata
+    /// has previously been synchronized.
+    ///
+    /// You probably want to have a prior write
+    /// linked to this, or set `Ordering::Drain`.
+    ///
+    /// Under the hood, this uses the "pessimistic"
+    /// set of flags:
+    /// `SYNC_FILE_RANGE_WAIT_BEFORE |
+    /// SYNC_FILE_RANGE_WRITE |
+    /// SYNC_FILE_RANGE_WAIT_AFTER`
+    pub fn sync_file_range_ordered<'a>(
+        &'a self,
+        file: &'a File,
+        offset: u64,
+        len: usize,
+        ordering: Ordering,
+    ) -> io::Result<Completion<'a, ()>> {
+        self.with_sqe(None, |mut sqe| {
+            sqe.prep_rw(
+                IORING_OP_SYNC_FILE_RANGE,
+                file.as_raw_fd(),
+                len,
+                offset,
+                ordering,
+            );
+            sqe.flags |= u8::try_from(
+                libc::SYNC_FILE_RANGE_WAIT_BEFORE,
+            )
+            .unwrap()
+                | u8::try_from(libc::SYNC_FILE_RANGE_WRITE)
+                    .unwrap()
+                | u8::try_from(
+                    libc::SYNC_FILE_RANGE_WAIT_AFTER,
+                )
+                .unwrap();
+        })
+    }
+
     /// Writes data at the provided buffer using
     /// vectored IO. Be sure to check the returned
     /// `io_uring_cqe`'s `res` field to see if a
