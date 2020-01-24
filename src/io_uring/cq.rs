@@ -47,13 +47,7 @@ impl Cq {
             cq_ring_mmap_sz,
             ring_fd,
             IORING_OFF_CQ_RING,
-        );
-
-        if cq_ring_ptr.is_null()
-            || cq_ring_ptr == libc::MAP_FAILED
-        {
-            return Err(io::Error::last_os_error());
-        }
+        )?;
 
         #[allow(unsafe_code)]
         Ok(unsafe {

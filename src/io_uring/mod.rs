@@ -74,9 +74,9 @@ fn uring_mmap(
     size: usize,
     ring_fd: i32,
     offset: i64,
-) -> *mut libc::c_void {
+) -> io::Result<*mut libc::c_void> {
     #[allow(unsafe_code)]
-    unsafe {
+    let ptr = unsafe {
         libc::mmap(
             std::ptr::null_mut(),
             size,
@@ -85,7 +85,22 @@ fn uring_mmap(
             ring_fd,
             offset,
         )
+    };
+
+    if ptr.is_null() || ptr == libc::MAP_FAILED {
+        let mut err = io::Error::last_os_error();
+        if let Some(12) = err.raw_os_error() {
+            err = io::Error::new(
+                io::ErrorKind::Other,
+                "Not enough lockable memory. You probably \
+                 need to raise the memlock rlimit, which \
+                 often defaults to a pretty low number.",
+            );
+        }
+        return Err(err);
     }
+
+    Ok(ptr)
 }
 
 impl FromCqe for TcpStream {

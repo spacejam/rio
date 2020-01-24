@@ -52,13 +52,7 @@ impl Sq {
             sq_ring_mmap_sz,
             ring_fd,
             IORING_OFF_SQ_RING,
-        );
-
-        if sq_ring_ptr.is_null()
-            || sq_ring_ptr == libc::MAP_FAILED
-        {
-            return Err(io::Error::last_os_error());
-        }
+        )?;
 
         let sqes_mmap_sz: usize = params.sq_entries
             as usize
@@ -68,14 +62,7 @@ impl Sq {
             sqes_mmap_sz,
             ring_fd,
             IORING_OFF_SQES,
-        ) as _;
-
-        if sqes_ptr.is_null()
-            || sqes_ptr
-                == libc::MAP_FAILED as *mut io_uring_sqe
-        {
-            return Err(io::Error::last_os_error());
-        }
+        )? as _;
 
         #[allow(unsafe_code)]
         Ok(unsafe {

@@ -28,7 +28,15 @@ pub(crate) fn setup(
         syscall(SETUP, i64::from(entries), p as c_long)
     };
     if ret < 0 {
-        let err = io::Error::last_os_error();
+        let mut err = io::Error::last_os_error();
+        if let Some(12) = err.raw_os_error() {
+            err = io::Error::new(
+                io::ErrorKind::Other,
+                "Not enough lockable memory. You probably \
+                 need to raise the memlock rlimit, which \
+                 often defaults to a pretty low number.",
+            );
+        }
         return Err(err);
     }
     Ok(i32::try_from(ret).unwrap())

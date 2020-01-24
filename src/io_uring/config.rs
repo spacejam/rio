@@ -75,7 +75,16 @@ impl Config {
         )?;
 
         if ring_fd < 0 {
-            return Err(io::Error::last_os_error());
+            let mut err = io::Error::last_os_error();
+            if let Some(12) = err.raw_os_error() {
+                err = io::Error::new(
+                io::ErrorKind::Other,
+                "Not enough lockable memory. You probably \
+                 need to raise the memlock rlimit, which \
+                 often defaults to a pretty low number.",
+            );
+            }
+            return Err(err);
         }
 
         let in_flight = Arc::new(InFlight::new(
