@@ -223,15 +223,7 @@ pub fn new() -> io::Result<Rio> {
 /// can be operated on as if they were a libc::iovec
 pub trait AsIoVec {
     /// Returns the address of this object.
-    fn into_new_iovec(&self) -> libc::iovec {
-        let ptr: *const _ = self;
-        let iovec_ptr = ptr as *const libc::iovec;
-
-        #[allow(unsafe_code)]
-        unsafe {
-            *iovec_ptr
-        }
-    }
+    fn into_new_iovec(&self) -> libc::iovec;
 }
 
 impl<A: ?Sized + AsRef<[u8]>> AsIoVec for A {

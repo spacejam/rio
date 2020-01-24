@@ -147,7 +147,7 @@ impl Uring {
     pub fn send<'a, F, B>(
         &'a self,
         stream: &'a F,
-        iov: B,
+        iov: &'a B,
     ) -> io::Result<Completion<'a, usize>>
     where
         F: AsRawFd,
@@ -171,7 +171,7 @@ impl Uring {
     pub fn send_ordered<'a, F, B>(
         &'a self,
         stream: &'a F,
-        iov: B,
+        iov: &'a B,
         ordering: Ordering,
     ) -> io::Result<Completion<'a, usize>>
     where
@@ -479,7 +479,7 @@ impl Uring {
     pub fn write_at<'a, F, B>(
         &'a self,
         file: &'a F,
-        iov: B,
+        iov: &'a B,
         at: u64,
     ) -> io::Result<Completion<'a, usize>>
     where
@@ -515,7 +515,7 @@ impl Uring {
     pub fn write_at_ordered<'a, F, B>(
         &'a self,
         file: &'a F,
-        iov: B,
+        iov: &'a B,
         at: u64,
         ordering: Ordering,
     ) -> io::Result<Completion<'a, usize>>
