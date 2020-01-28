@@ -65,28 +65,21 @@ impl InFlight {
             let msghdr_ptr = self.msghdrs.get();
             if let Some(iovec) = iovec {
                 (*iovec_ptr)[ticket] = iovec;
-                dbg!(&iovec.iov_base);
-                dbg!(&iovec.iov_len);
-                dbg!((*iovec_ptr).as_mut_ptr().add(ticket));
 
                 if msghdr {
                     (*msghdr_ptr)[ticket].msg_iov =
-                        dbg!((*iovec_ptr)
+                        (*iovec_ptr)
                             .as_mut_ptr()
-                            .add(ticket));
+                            .add(ticket);
                 }
             }
             (*self.fillers.get())[ticket] = Some(filler);
             if iovec.is_some() {
                 if msghdr {
-                    dbg!((*msghdr_ptr)
-                        .as_mut_ptr()
-                        .add(ticket))
+                    (*msghdr_ptr).as_mut_ptr().add(ticket)
                         as u64
                 } else {
-                    dbg!((*iovec_ptr)
-                        .as_mut_ptr()
-                        .add(ticket))
+                    (*iovec_ptr).as_mut_ptr().add(ticket)
                         as u64
                 }
             } else {

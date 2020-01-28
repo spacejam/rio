@@ -1,16 +1,16 @@
 use super::*;
 
 /// Nice bindings for the shiny new linux IO system
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Uring {
-    sq: Mutex<Sq>,
+    sq: Arc<Mutex<Sq>>,
     ticket_queue: Arc<TicketQueue>,
     in_flight: Arc<InFlight>,
     flags: u32,
     ring_fd: i32,
     config: Config,
-    loaded: AtomicU64,
-    submitted: AtomicU64,
+    loaded: Arc<AtomicU64>,
+    submitted: Arc<AtomicU64>,
 }
 
 #[allow(unsafe_code)]
@@ -56,12 +56,12 @@ impl Uring {
         Uring {
             flags,
             ring_fd,
-            sq: Mutex::new(sq),
+            sq: Arc::new(Mutex::new(sq)),
             config,
             in_flight: in_flight,
             ticket_queue: ticket_queue,
-            loaded: 0.into(),
-            submitted: 0.into(),
+            loaded: Arc::new(0.into()),
+            submitted: Arc::new(0.into()),
         }
     }
 
