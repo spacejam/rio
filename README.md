@@ -107,13 +107,44 @@ check out slides 43-53 of [this presentation deck by Jens](https://www.slideshar
 
 #### examples that will be broken in the next day or two
 
+async tcp echo server:
+
+```rust
+use std::{
+    io::self,
+    net::{TcpListener, TcpStream},
+};
+
+async fn proxy(ring: &rio::Rio, a: &TcpStream, b: &TcpStream) -> io::Result<()> {
+    let buf = vec![0_u8; 512];
+    loop {
+        let read_bytes = ring.read_at(a, &buf, 0).await?;
+        let buf = &buf[..read_bytes];
+        ring.write_at(b, &buf, 0).await?;
+    }
+}
+
+fn main() -> io::Result<()> {
+    let ring = rio::new()?;
+    let acceptor = TcpListener::bind("127.0.0.1:6666")?;
+
+    extreme::run(async {
+        // kernel 5.5 and later support TCP accept
+        loop {
+            let stream = ring.accept(&acceptor).await?;
+            dbg!(proxy(&ring, &stream, &stream).await);
+        }
+    })
+}
+```
+
 file reading:
 
 ```rust
 let mut ring = rio::new().expect("create uring");
 let file = std::fs::open("file").expect("openat");
-let dater: &mut [u8] = &mut [0; 66];
-let completion = ring.read(&file, &mut dater, at)?;
+let data: &mut [u8] = &mut [0; 66];
+let completion = ring.read(&file, &mut data, at);
 
 // if using threads
 completion.wait()?;
@@ -128,55 +159,13 @@ file writing:
 let mut ring = rio::new().expect("create uring");
 let file = std::fs::create("file").expect("openat");
 let dater: &[u8] = &[6; 66];
-let completion = ring.read_at(&file, &dater, at)?;
+let completion = ring.read_at(&file, &dater, at);
 
 // if using threads
 completion.wait()?;
 
 // if using async
 completion.await?
-```
-
-async tcp echo server:
-
-```rust
-use std::{
-    io::self,
-    net::{TcpListener, TcpStream},
-};
-
-async fn proxy(ring: &rio::Rio, a: &TcpStream, b: &TcpStream) -> io::Result<()> {
-    // for kernel 5.6 and later, io_uring will support
-    // recv/send which will more gracefully handle
-    // reads of larger sizes.
-    let buf = vec![0_u8; 1];
-    loop {
-        let read = ring.read_at_ordered(
-            a,
-            &buf,
-            0,
-            rio::Ordering::Link,
-        )?;
-        let write = ring.write_at(b, &buf, 0)?;
-        read.await?;
-        write.await?;
-    }
-}
-
-fn main() -> io::Result<()> {
-    let ring = rio::new()?;
-    let acceptor = TcpListener::bind("127.0.0.1:6666")?;
-
-    extreme::run(async {
-        // kernel 5.5 and later support TCP accept
-        for stream_res in acceptor.incoming() {
-            let stream = stream_res?;
-            proxy(&ring, &stream, &stream).await;
-        }
-
-        Ok(())
-    })
-}
 ```
 
 speedy O_DIRECT shi0t (try this at home / run the o_direct example)
@@ -229,10 +218,10 @@ fn main() -> Result<()> {
             &out_slice,
             at,
             rio::Ordering::Link,
-        )?;
+        );
         completions.push(write);
 
-        let read = ring.read_at(&file, &in_slice, at)?;
+        let read = ring.read_at(&file, &in_slice, at);
         completions.push(read);
     }
 

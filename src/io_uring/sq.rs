@@ -152,7 +152,7 @@ impl Sq {
         &mut self,
         ring_flags: u32,
         ring_fd: i32,
-    ) -> io::Result<u64> {
+    ) -> u64 {
         let submitted = if ring_flags & IORING_SETUP_SQPOLL
             == 0
         {
@@ -172,7 +172,11 @@ impl Sq {
                     0,
                     flags,
                     std::ptr::null_mut(),
-                )?;
+                )
+                .expect(
+                    "Failed to submit items to kernel via \
+                     io_uring. This should never fail.",
+                );
                 to_submit -= u32::try_from(ret).unwrap();
             }
             flushed
@@ -192,12 +196,16 @@ impl Sq {
                 0,
                 IORING_ENTER_SQ_WAKEUP,
                 std::ptr::null_mut(),
-            )?;
+            )
+            .expect(
+                "Failed to wake up SQPOLL io_uring \
+                 kernel thread. This should never fail.",
+            );
             0
         } else {
             0
         };
         assert_eq!(self.kdropped.load(Relaxed), 0);
-        Ok(u64::from(submitted))
+        u64::from(submitted)
     }
 }

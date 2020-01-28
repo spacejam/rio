@@ -1,7 +1,10 @@
+use std::ptr::null_mut;
+
 use super::*;
 
 pub(crate) struct InFlight {
     iovecs: UnsafeCell<Vec<libc::iovec>>,
+    msghdrs: UnsafeCell<Vec<libc::msghdr>>,
     fillers: UnsafeCell<Vec<Option<Filler>>>,
 }
 
@@ -18,8 +21,22 @@ impl InFlight {
     pub(crate) fn new(size: usize) -> InFlight {
         let iovecs = UnsafeCell::new(vec![
             libc::iovec {
-                iov_base: std::ptr::null_mut(),
+                iov_base: null_mut(),
                 iov_len: 0
+            };
+            size
+        ]);
+        let msghdrs = UnsafeCell::new(vec![
+            libc::msghdr {
+                msg_name: null_mut(),
+                msg_namelen: std::mem::size_of::<
+                    libc::sockaddr_in,
+                >() as u32,
+                msg_iov: null_mut(),
+                msg_iovlen: 1,
+                msg_control: null_mut(),
+                msg_controllen: 0,
+                msg_flags: 0,
             };
             size
         ]);
@@ -28,26 +45,52 @@ impl InFlight {
             filler_vec.push(None);
         }
         let fillers = UnsafeCell::new(filler_vec);
-        InFlight { iovecs, fillers }
+        InFlight {
+            iovecs,
+            msghdrs,
+            fillers,
+        }
     }
 
     pub(crate) fn insert(
         &self,
         ticket: usize,
         iovec: Option<libc::iovec>,
+        msghdr: bool,
         filler: Filler,
-    ) -> *mut libc::iovec {
+    ) -> u64 {
         #[allow(unsafe_code)]
         unsafe {
             let iovec_ptr = self.iovecs.get();
+            let msghdr_ptr = self.msghdrs.get();
             if let Some(iovec) = iovec {
                 (*iovec_ptr)[ticket] = iovec;
+                dbg!(&iovec.iov_base);
+                dbg!(&iovec.iov_len);
+                dbg!((*iovec_ptr).as_mut_ptr().add(ticket));
+
+                if msghdr {
+                    (*msghdr_ptr)[ticket].msg_iov =
+                        dbg!((*iovec_ptr)
+                            .as_mut_ptr()
+                            .add(ticket));
+                }
             }
             (*self.fillers.get())[ticket] = Some(filler);
             if iovec.is_some() {
-                (*iovec_ptr).as_mut_ptr().add(ticket)
+                if msghdr {
+                    dbg!((*msghdr_ptr)
+                        .as_mut_ptr()
+                        .add(ticket))
+                        as u64
+                } else {
+                    dbg!((*iovec_ptr)
+                        .as_mut_ptr()
+                        .add(ticket))
+                        as u64
+                }
             } else {
-                std::ptr::null_mut()
+                0
             }
         }
     }

@@ -22,7 +22,7 @@ unsafe impl Sync for Uring {}
 impl Drop for Uring {
     fn drop(&mut self) {
         let poison_pill_res =
-            self.with_sqe::<_, ()>(None, |sqe| {
+            self.with_sqe::<_, ()>(None, false, |sqe| {
                 sqe.prep_rw(
                     IORING_OP_NOP,
                     0,
@@ -34,20 +34,8 @@ impl Drop for Uring {
                 sqe.user_data ^= u64::max_value();
             });
 
-        if let Err(e) = poison_pill_res {
-            eprintln!(
-                "failed to flush poison pill to the ring: {:?}",
-                e
-            );
-        }
-
-        let current = self.loaded.load(Acquire);
-        if let Err(e) = self.ensure_submitted(current) {
-            eprintln!(
-                "failed to submit pending items: {:?}",
-                e
-            );
-        }
+        // this waits for the NOP event to complete.
+        drop(poison_pill_res);
 
         if self.config.print_profile_on_drop {
             #[cfg(not(feature = "no_metrics"))]
@@ -91,7 +79,7 @@ impl Uring {
         };
         let _hold_sq_mu = Measure::new(&M.sq_mu_hold);
         let submitted =
-            sq.submit_all(self.flags, self.ring_fd)?;
+            sq.submit_all(self.flags, self.ring_fd);
         let old =
             self.submitted.fetch_add(submitted, Release);
 
@@ -122,8 +110,8 @@ impl Uring {
     pub fn accept<'a>(
         &'a self,
         tcp_listener: &'a TcpListener,
-    ) -> io::Result<Completion<'a, TcpStream>> {
-        self.with_sqe(None, |sqe| {
+    ) -> Completion<'a, TcpStream> {
+        self.with_sqe(None, false, |sqe| {
             sqe.prep_rw(
                 IORING_OP_ACCEPT,
                 tcp_listener.as_raw_fd(),
@@ -148,7 +136,7 @@ impl Uring {
         &'a self,
         stream: &'a F,
         iov: &'a B,
-    ) -> io::Result<Completion<'a, usize>>
+    ) -> Completion<'a, usize>
     where
         F: AsRawFd,
         B: 'a + AsIoVec,
@@ -173,14 +161,14 @@ impl Uring {
         stream: &'a F,
         iov: &'a B,
         ordering: Ordering,
-    ) -> io::Result<Completion<'a, usize>>
+    ) -> Completion<'a, usize>
     where
         F: AsRawFd,
         B: 'a + AsIoVec,
     {
         let iov = iov.into_new_iovec();
 
-        self.with_sqe(None, |sqe| {
+        self.with_sqe(None, true, |sqe| {
             sqe.prep_rw(
                 IORING_OP_SEND,
                 stream.as_raw_fd(),
@@ -208,7 +196,7 @@ impl Uring {
         &'a self,
         stream: &'a F,
         iov: &'a B,
-    ) -> io::Result<Completion<'a, usize>>
+    ) -> Completion<'a, usize>
     where
         F: AsRawFd,
         B: AsIoVec + AsIoVecMut,
@@ -234,14 +222,14 @@ impl Uring {
         stream: &'a F,
         iov: &'a B,
         ordering: Ordering,
-    ) -> io::Result<Completion<'a, usize>>
+    ) -> Completion<'a, usize>
     where
         F: AsRawFd,
         B: AsIoVec + AsIoVecMut,
     {
         let iov = iov.into_new_iovec();
 
-        self.with_sqe(None, |sqe| {
+        self.with_sqe(Some(iov), true, |sqe| {
             sqe.prep_rw(
                 IORING_OP_RECV,
                 stream.as_raw_fd(),
@@ -249,7 +237,6 @@ impl Uring {
                 0,
                 ordering,
             );
-            sqe.addr = iov.iov_base as u64;
             sqe.len = u32::try_from(iov.iov_len).unwrap();
         })
     }
@@ -277,7 +264,7 @@ impl Uring {
     pub fn fsync<'a>(
         &'a self,
         file: &'a File,
-    ) -> io::Result<Completion<'a, ()>> {
+    ) -> Completion<'a, ()> {
         self.fsync_ordered(file, Ordering::None)
     }
 
@@ -313,8 +300,8 @@ impl Uring {
         &'a self,
         file: &'a File,
         ordering: Ordering,
-    ) -> io::Result<Completion<'a, ()>> {
-        self.with_sqe(None, |sqe| {
+    ) -> Completion<'a, ()> {
+        self.with_sqe(None, false, |sqe| {
             sqe.prep_rw(
                 IORING_OP_FSYNC,
                 file.as_raw_fd(),
@@ -346,7 +333,7 @@ impl Uring {
     pub fn fdatasync<'a>(
         &'a self,
         file: &'a File,
-    ) -> io::Result<Completion<'a, ()>> {
+    ) -> Completion<'a, ()> {
         self.fdatasync_ordered(file, Ordering::None)
     }
 
@@ -383,8 +370,8 @@ impl Uring {
         &'a self,
         file: &'a File,
         ordering: Ordering,
-    ) -> io::Result<Completion<'a, ()>> {
-        self.with_sqe(None, |mut sqe| {
+    ) -> Completion<'a, ()> {
+        self.with_sqe(None, false, |mut sqe| {
             sqe.prep_rw(
                 IORING_OP_FSYNC,
                 file.as_raw_fd(),
@@ -416,7 +403,7 @@ impl Uring {
         file: &'a File,
         offset: u64,
         len: usize,
-    ) -> io::Result<Completion<'a, ()>> {
+    ) -> Completion<'a, ()> {
         self.sync_file_range_ordered(
             file,
             offset,
@@ -445,8 +432,8 @@ impl Uring {
         offset: u64,
         len: usize,
         ordering: Ordering,
-    ) -> io::Result<Completion<'a, ()>> {
-        self.with_sqe(None, |mut sqe| {
+    ) -> Completion<'a, ()> {
+        self.with_sqe(None, false, |mut sqe| {
             sqe.prep_rw(
                 IORING_OP_SYNC_FILE_RANGE,
                 file.as_raw_fd(),
@@ -481,7 +468,7 @@ impl Uring {
         file: &'a F,
         iov: &'a B,
         at: u64,
-    ) -> io::Result<Completion<'a, usize>>
+    ) -> Completion<'a, usize>
     where
         F: AsRawFd,
         B: 'a + AsIoVec,
@@ -518,20 +505,24 @@ impl Uring {
         iov: &'a B,
         at: u64,
         ordering: Ordering,
-    ) -> io::Result<Completion<'a, usize>>
+    ) -> Completion<'a, usize>
     where
         F: AsRawFd,
         B: 'a + AsIoVec,
     {
-        self.with_sqe(Some(iov.into_new_iovec()), |sqe| {
-            sqe.prep_rw(
-                IORING_OP_WRITEV,
-                file.as_raw_fd(),
-                1,
-                at,
-                ordering,
-            )
-        })
+        self.with_sqe(
+            Some(iov.into_new_iovec()),
+            false,
+            |sqe| {
+                sqe.prep_rw(
+                    IORING_OP_WRITEV,
+                    file.as_raw_fd(),
+                    1,
+                    at,
+                    ordering,
+                )
+            },
+        )
     }
 
     /// Reads data into the provided buffer from the
@@ -549,7 +540,7 @@ impl Uring {
         file: &'a F,
         iov: &'a B,
         at: u64,
-    ) -> io::Result<Completion<'a, usize>>
+    ) -> Completion<'a, usize>
     where
         F: AsRawFd,
         B: AsIoVec + AsIoVecMut,
@@ -584,27 +575,29 @@ impl Uring {
         iov: &'a B,
         at: u64,
         ordering: Ordering,
-    ) -> io::Result<Completion<'a, usize>>
+    ) -> Completion<'a, usize>
     where
         F: AsRawFd,
         B: AsIoVec + AsIoVecMut,
     {
-        self.with_sqe(Some(iov.into_new_iovec()), |sqe| {
-            sqe.prep_rw(
-                IORING_OP_READV,
-                file.as_raw_fd(),
-                1,
-                at,
-                ordering,
-            )
-        })
+        self.with_sqe(
+            Some(iov.into_new_iovec()),
+            false,
+            |sqe| {
+                sqe.prep_rw(
+                    IORING_OP_READV,
+                    file.as_raw_fd(),
+                    1,
+                    at,
+                    ordering,
+                )
+            },
+        )
     }
 
     /// Don't do anything. This is
     /// mostly for debugging and tuning.
-    pub fn nop<'a>(
-        &'a self,
-    ) -> io::Result<Completion<'a, ()>> {
+    pub fn nop<'a>(&'a self) -> Completion<'a, ()> {
         self.nop_ordered(Ordering::None)
     }
 
@@ -613,8 +606,8 @@ impl Uring {
     pub fn nop_ordered<'a>(
         &'a self,
         ordering: Ordering,
-    ) -> io::Result<Completion<'a, ()>> {
-        self.with_sqe(None, |sqe| {
+    ) -> Completion<'a, ()> {
+        self.with_sqe(None, false, |sqe| {
             sqe.prep_rw(IORING_OP_NOP, 0, 1, 0, ordering)
         })
     }
@@ -637,20 +630,21 @@ impl Uring {
     /// a while first, calling this will ensure
     /// that the operation is being executed
     /// by the kernel in the mean time.
-    pub fn submit_all(&self) -> io::Result<()> {
+    pub fn submit_all(&self) {
         let mut sq = {
             let _get_sq_mu = Measure::new(&M.sq_mu_wait);
             self.sq.lock().unwrap()
         };
         let _hold_sq_mu = Measure::new(&M.sq_mu_hold);
-        sq.submit_all(self.flags, self.ring_fd).map(|_| ())
+        sq.submit_all(self.flags, self.ring_fd);
     }
 
     fn with_sqe<'a, F, C>(
         &'a self,
         iovec: Option<libc::iovec>,
+        msghdr: bool,
         f: F,
-    ) -> io::Result<Completion<'a, C>>
+    ) -> Completion<'a, C>
     where
         F: FnOnce(&mut io_uring_sqe),
         C: FromCqe,
@@ -658,8 +652,9 @@ impl Uring {
         let ticket = self.ticket_queue.pop();
         let (mut completion, filler) = pair(self);
 
-        let iovec_ptr =
-            self.in_flight.insert(ticket, iovec, filler);
+        let data_ptr = self
+            .in_flight
+            .insert(ticket, iovec, msghdr, filler);
 
         let mut sq = {
             let _get_sq_mu = Measure::new(&M.sq_mu_wait);
@@ -681,7 +676,7 @@ impl Uring {
                     let submitted = sq.submit_all(
                         self.flags,
                         self.ring_fd,
-                    )?;
+                    );
                     self.submitted
                         .fetch_add(submitted, Release);
                 };
@@ -689,9 +684,9 @@ impl Uring {
         };
 
         sqe.user_data = ticket as u64;
-        sqe.addr = iovec_ptr as u64;
+        sqe.addr = data_ptr;
         f(sqe);
 
-        Ok(completion)
+        completion
     }
 }

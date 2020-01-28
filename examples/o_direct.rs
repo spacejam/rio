@@ -49,13 +49,13 @@ fn main() -> Result<()> {
             &out_slice,
             at,
             rio::Ordering::Link,
-        )?;
+        );
         completions.push(write);
 
         // This operation will not start
         // until the previous linked one
         // finishes.
-        let read = ring.read_at(&file, &in_slice, at)?;
+        let read = ring.read_at(&file, &in_slice, at);
         completions.push(read);
     }
 

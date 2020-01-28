@@ -17,7 +17,7 @@ fn main() -> Result<()> {
     let pre = std::time::Instant::now();
 
     for _ in 0..(1_000_000) {
-        let completion = ring.nop()?;
+        let completion = ring.nop();
         completions.push(completion);
     }
 
