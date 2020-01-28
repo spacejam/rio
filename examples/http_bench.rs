@@ -40,7 +40,7 @@ fn main() -> io::Result<()> {
 
     let mut threads = vec![];
 
-    for _ in 0..12 {
+    for _ in 0..1 {
         let acceptor = acceptor.try_clone().unwrap();
         let ring = ring.clone();
         threads.push(std::thread::spawn(move || {
