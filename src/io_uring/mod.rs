@@ -42,7 +42,10 @@ pub(crate) use {
     ticket_queue::TicketQueue,
 };
 
-pub use {config::Config, uring::Uring};
+pub use {
+    config::Config,
+    uring::{Rio, Uring},
+};
 
 /// Specify whether `io_uring` should
 /// run operations in a specific order.

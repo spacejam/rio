@@ -8,7 +8,7 @@ use std::{
 };
 
 use super::{
-    io_uring::io_uring_cqe, FromCqe, Measure, Rio, M,
+    io_uring::io_uring_cqe, FromCqe, Measure, Uring, M,
 };
 
 #[derive(Debug)]
@@ -34,7 +34,7 @@ pub struct Completion<'a, C: FromCqe> {
     lifetime: PhantomData<&'a C>,
     mu: Arc<Mutex<CompletionState>>,
     cv: Arc<Condvar>,
-    uring: &'a Rio,
+    uring: &'a Uring,
     pub(crate) sqe_id: u64,
 }
 
@@ -48,7 +48,7 @@ pub struct Filler {
 /// Create a new `Filler` and the `Completion`
 /// that will be filled by its completion.
 pub fn pair<'a, C: FromCqe>(
-    uring: &'a Rio,
+    uring: &'a Uring,
 ) -> (Completion<'a, C>, Filler) {
     let mu =
         Arc::new(Mutex::new(CompletionState::default()));

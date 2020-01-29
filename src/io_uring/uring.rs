@@ -2,15 +2,27 @@ use super::*;
 
 /// Nice bindings for the shiny new linux IO system
 #[derive(Debug, Clone)]
+pub struct Rio(pub(crate) Arc<Uring>);
+
+impl std::ops::Deref for Rio {
+    type Target = Uring;
+
+    fn deref(&self) -> &Uring {
+        &self.0
+    }
+}
+
+/// The top-level `io_uring` structure.
+#[derive(Debug)]
 pub struct Uring {
-    sq: Arc<Mutex<Sq>>,
+    sq: Mutex<Sq>,
     ticket_queue: Arc<TicketQueue>,
     in_flight: Arc<InFlight>,
     flags: u32,
     ring_fd: i32,
     config: Config,
-    loaded: Arc<AtomicU64>,
-    submitted: Arc<AtomicU64>,
+    loaded: AtomicU64,
+    submitted: AtomicU64,
 }
 
 #[allow(unsafe_code)]
@@ -56,12 +68,12 @@ impl Uring {
         Uring {
             flags,
             ring_fd,
-            sq: Arc::new(Mutex::new(sq)),
+            sq: Mutex::new(sq),
             config,
             in_flight: in_flight,
             ticket_queue: ticket_queue,
-            loaded: Arc::new(0.into()),
-            submitted: Arc::new(0.into()),
+            loaded: 0.into(),
+            submitted: 0.into(),
         }
     }
 

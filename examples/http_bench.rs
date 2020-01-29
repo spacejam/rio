@@ -19,7 +19,6 @@ fn counter() -> io::Result<()> {
 }
 
 fn serve(ring: rio::Rio, acceptor: TcpListener) -> io::Result<()> {
-    let buf = vec![0_u8; 512];
     extreme::run(async move {
         loop {
             let stream = ring.accept(&acceptor).wait()?;

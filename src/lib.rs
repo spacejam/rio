@@ -96,6 +96,7 @@
 //!
 //!     // create output buffer
 //!     let out_buf = Aligned([42; CHUNK_SIZE as usize]);
+//!     let out_slice = out_buf.0.as_ref();
 //!
 //!     let mut completions = vec![];
 //!
@@ -104,9 +105,9 @@
 //!
 //!         let completion = ring.write_at(
 //!             &file,
-//!             out_buf.0.as_ref(),
+//!             &out_slice,
 //!             at,
-//!         )?;
+//!         );
 //!         completions.push(completion);
 //!     }
 //!
@@ -203,7 +204,7 @@ mod metrics;
 mod io_uring;
 
 #[cfg(target_os = "linux")]
-pub use io_uring::{Config, Ordering, Uring as Rio};
+pub use io_uring::{Config, Ordering, Rio, Uring};
 
 pub use completion::Completion;
 
@@ -283,7 +284,7 @@ impl<A: ?Sized + AsRef<[u8]>> AsIoVec for A {
 /// let buffer: &mut [u8] = &mut [0; 42];
 ///
 /// // this now works
-/// ring.read_at(&file, &buffer, 0).unwrap();
+/// ring.read_at(&file, &buffer, 0).wait();
 /// ```
 pub trait AsIoVecMut {}
 

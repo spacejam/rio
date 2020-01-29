@@ -12,10 +12,7 @@ fn test_vec_value() {
     let ring = rio::new().unwrap();
 
     let buffer: Vec<u8> = b"hello world!".to_vec();
-    ring.write_at(&file, &buffer, 0)
-        .unwrap()
-        .wait()
-        .unwrap();
+    ring.write_at(&file, &buffer, 0).wait().unwrap();
 
     let mut contents = vec![];
     file.read_to_end(&mut contents).unwrap();

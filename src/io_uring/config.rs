@@ -50,7 +50,7 @@ impl Default for Config {
 
 impl Config {
     /// Start the `Rio` system.
-    pub fn start(mut self) -> io::Result<Uring> {
+    pub fn start(mut self) -> io::Result<Rio> {
         let mut params =
             if let Some(params) = self.raw_params.take() {
                 params
@@ -108,13 +108,13 @@ impl Config {
             cq.reaper(ring_fd)
         });
 
-        Ok(Uring::new(
+        Ok(Rio(Arc::new(Uring::new(
             self,
             params.flags,
             ring_fd,
             sq,
             in_flight,
             ticket_queue,
-        ))
+        ))))
     }
 }
