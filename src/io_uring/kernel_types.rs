@@ -73,8 +73,12 @@ impl io_uring_sqe {
     fn apply_order(&mut self, ordering: Ordering) {
         match ordering {
             Ordering::None => {}
-            Ordering::Link => self.flags |= IOSQE_IO_LINK,
-            Ordering::Drain => self.flags |= IOSQE_IO_DRAIN,
+            Ordering::Link => {
+                self.flags |= IOSQE_IO_LINK_BIT
+            }
+            Ordering::Drain => {
+                self.flags |= IOSQE_IO_DRAIN_BIT
+            }
         }
     }
 }

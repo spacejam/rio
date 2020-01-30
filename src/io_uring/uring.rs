@@ -407,9 +407,7 @@ impl Uring {
     ///
     /// Under the hood, this uses the "pessimistic"
     /// set of flags:
-    /// `SYNC_FILE_RANGE_WAIT_BEFORE |
-    /// SYNC_FILE_RANGE_WRITE |
-    /// SYNC_FILE_RANGE_WAIT_AFTER`
+    /// `SYNC_FILE_RANGE_WRITE | SYNC_FILE_RANGE_WAIT_AFTER`
     pub fn sync_file_range<'a>(
         &'a self,
         file: &'a File,
@@ -435,9 +433,7 @@ impl Uring {
     ///
     /// Under the hood, this uses the "pessimistic"
     /// set of flags:
-    /// `SYNC_FILE_RANGE_WAIT_BEFORE |
-    /// SYNC_FILE_RANGE_WRITE |
-    /// SYNC_FILE_RANGE_WAIT_AFTER`
+    /// `SYNC_FILE_RANGE_WRITE | SYNC_FILE_RANGE_WAIT_AFTER`
     pub fn sync_file_range_ordered<'a>(
         &'a self,
         file: &'a File,
@@ -454,15 +450,16 @@ impl Uring {
                 ordering,
             );
             sqe.flags |= u8::try_from(
-                libc::SYNC_FILE_RANGE_WAIT_BEFORE,
+                // We don't use this because it causes
+                // EBADF to be thrown. Looking at
+                // linux's fs/sync.c, it seems as though
+                // it performs an identical operation
+                // as SYNC_FILE_RANGE_WAIT_AFTER.
+                // libc::SYNC_FILE_RANGE_WAIT_BEFORE |
+                libc::SYNC_FILE_RANGE_WRITE
+                    | libc::SYNC_FILE_RANGE_WAIT_AFTER,
             )
-            .unwrap()
-                | u8::try_from(libc::SYNC_FILE_RANGE_WRITE)
-                    .unwrap()
-                | u8::try_from(
-                    libc::SYNC_FILE_RANGE_WAIT_AFTER,
-                )
-                .unwrap();
+            .unwrap();
         })
     }
 

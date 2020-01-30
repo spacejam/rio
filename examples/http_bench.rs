@@ -1,6 +1,6 @@
 use std::{
     io,
-    net::{TcpListener, TcpStream},
+    net::{TcpListener},
 };
 
 const RESP: &'static str = "HTTP/1.0 200 OK\r\n\r\n";
