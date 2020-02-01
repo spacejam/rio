@@ -144,7 +144,7 @@ file reading:
 let mut ring = rio::new().expect("create uring");
 let file = std::fs::open("file").expect("openat");
 let data: &mut [u8] = &mut [0; 66];
-let completion = ring.read(&file, &mut data, at);
+let completion = ring.read_at(&file, &mut data, at);
 
 // if using threads
 completion.wait()?;
@@ -159,7 +159,7 @@ file writing:
 let mut ring = rio::new().expect("create uring");
 let file = std::fs::create("file").expect("openat");
 let dater: &[u8] = &[6; 66];
-let completion = ring.read_at(&file, &dater, at);
+let completion = ring.write_at(&file, &dater, at);
 
 // if using threads
 completion.wait()?;
