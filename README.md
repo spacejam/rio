@@ -141,7 +141,7 @@ fn main() -> io::Result<()> {
 file reading:
 
 ```rust
-let mut ring = rio::new().expect("create uring");
+let ring = rio::new().expect("create uring");
 let file = std::fs::open("file").expect("openat");
 let data: &mut [u8] = &mut [0; 66];
 let completion = ring.read_at(&file, &mut data, at);
@@ -156,10 +156,10 @@ completion.await?
 file writing:
 
 ```rust
-let mut ring = rio::new().expect("create uring");
+let ring = rio::new().expect("create uring");
 let file = std::fs::create("file").expect("openat");
-let dater: &[u8] = &[6; 66];
-let completion = ring.write_at(&file, &dater, at);
+let to_write: &[u8] = &[6; 66];
+let completion = ring.write_at(&file, &to_write, at);
 
 // if using threads
 completion.wait()?;
