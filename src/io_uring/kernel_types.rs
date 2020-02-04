@@ -74,10 +74,10 @@ impl io_uring_sqe {
         match ordering {
             Ordering::None => {}
             Ordering::Link => {
-                self.flags |= IOSQE_IO_LINK_BIT
+                self.flags |= IOSQE_IO_LINK
             }
             Ordering::Drain => {
-                self.flags |= IOSQE_IO_DRAIN_BIT
+                self.flags |= IOSQE_IO_DRAIN
             }
         }
     }
