@@ -75,7 +75,7 @@ fn main() -> Result<()> {
     for i in 0..(10) {
         dbg!();
         let at = i * CHUNK_SIZE;
-        let read = dbg!(ring.registered_file_read_at(1, &in_slice, at));
+        let read = dbg!(ring.registered_file_read_at(0, &in_slice, at));
         completions.push(dbg!(read));
     }
     
