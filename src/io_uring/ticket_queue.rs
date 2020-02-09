@@ -20,10 +20,7 @@ impl TicketQueue {
         }
     }
 
-    pub(crate) fn push_multi(
-        &self,
-        mut new_tickets: Vec<usize>,
-    ) {
+    pub(crate) fn push_multi(&self, mut new_tickets: Vec<usize>) {
         let _ = Measure::new(&M.ticket_queue_push);
         let mut tickets = self.tickets.lock().unwrap();
         tickets.append(&mut new_tickets);

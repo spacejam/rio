@@ -1,7 +1,4 @@
-use std::{
-    fs::OpenOptions, io::Result,
-    os::unix::fs::OpenOptionsExt,
-};
+use std::{fs::OpenOptions, io::Result, os::unix::fs::OpenOptionsExt};
 
 const CHUNK_SIZE: u64 = 4096 * 256;
 
@@ -44,12 +41,7 @@ fn main() -> Result<()> {
         // we specify that the following
         // read should happen after this
         // write.
-        let write = ring.write_at_ordered(
-            &file,
-            &out_slice,
-            at,
-            rio::Ordering::Link,
-        );
+        let write = ring.write_at_ordered(&file, &out_slice, at, rio::Ordering::Link);
         completions.push(write);
 
         // This operation will not start

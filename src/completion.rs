@@ -7,9 +7,7 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-use super::{
-    io_uring::io_uring_cqe, FromCqe, Measure, Uring, M,
-};
+use super::{io_uring::io_uring_cqe, FromCqe, Measure, Uring, M};
 
 #[derive(Debug)]
 struct CompletionState {
@@ -47,11 +45,8 @@ pub struct Filler {
 
 /// Create a new `Filler` and the `Completion`
 /// that will be filled by its completion.
-pub fn pair<'a, C: FromCqe>(
-    uring: &'a Uring,
-) -> (Completion<'a, C>, Filler) {
-    let mu =
-        Arc::new(Mutex::new(CompletionState::default()));
+pub fn pair<'a, C: FromCqe>(uring: &'a Uring) -> (Completion<'a, C>, Filler) {
+    let mu = Arc::new(Mutex::new(CompletionState::default()));
     let cv = Arc::new(Condvar::new());
     let future = Completion {
         lifetime: PhantomData,
@@ -80,8 +75,7 @@ impl<'a, C: FromCqe> Completion<'a, C> {
         C: FromCqe,
     {
         debug_assert_ne!(
-            self.sqe_id,
-            0,
+            self.sqe_id, 0,
             "sqe_id was never filled-in for this Completion",
         );
 
@@ -97,9 +91,10 @@ impl<'a, C: FromCqe> Completion<'a, C> {
             inner = self.cv.wait(inner).unwrap();
         }
 
-        return inner.item.take().map(|io_result| {
-            io_result.map(FromCqe::from_cqe)
-        });
+        return inner
+            .item
+            .take()
+            .map(|io_result| io_result.map(FromCqe::from_cqe));
     }
 }
 
@@ -112,23 +107,14 @@ impl<'a, C: FromCqe> Drop for Completion<'a, C> {
 impl<'a, C: FromCqe> Future for Completion<'a, C> {
     type Output = io::Result<C>;
 
-    fn poll(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         self.uring
             .ensure_submitted(self.sqe_id)
             .expect("failed to submit SQE from wait_inner");
 
         let mut state = self.mu.lock().unwrap();
         if state.item.is_some() {
-            Poll::Ready(
-                state
-                    .item
-                    .take()
-                    .unwrap()
-                    .map(FromCqe::from_cqe),
-            )
+            Poll::Ready(state.item.take().unwrap().map(FromCqe::from_cqe))
         } else {
             if !state.done {
                 state.waker = Some(cx.waker().clone());

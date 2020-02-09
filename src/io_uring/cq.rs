@@ -23,10 +23,7 @@ impl Drop for Cq {
     fn drop(&mut self) {
         #[allow(unsafe_code)]
         unsafe {
-            libc::munmap(
-                self.ring_ptr as *mut libc::c_void,
-                self.ring_mmap_sz,
-            );
+            libc::munmap(self.ring_ptr as *mut libc::c_void, self.ring_mmap_sz);
         }
     }
 }
@@ -40,36 +37,21 @@ impl Cq {
     ) -> io::Result<Cq> {
         // TODO IORING_FEAT_SINGLE_MMAP for cq
         let cq_ring_mmap_sz = params.cq_off.cqes as usize
-            + (params.cq_entries as usize
-                * std::mem::size_of::<io_uring_cqe>());
+            + (params.cq_entries as usize * std::mem::size_of::<io_uring_cqe>());
 
-        let cq_ring_ptr = uring_mmap(
-            cq_ring_mmap_sz,
-            ring_fd,
-            IORING_OFF_CQ_RING,
-        )?;
+        let cq_ring_ptr = uring_mmap(cq_ring_mmap_sz, ring_fd, IORING_OFF_CQ_RING)?;
 
         #[allow(unsafe_code)]
         Ok(unsafe {
             Cq {
                 ring_ptr: cq_ring_ptr,
                 ring_mmap_sz: cq_ring_mmap_sz,
-                khead: &*(cq_ring_ptr
-                    .add(params.cq_off.head as usize)
-                    as *const AtomicU32),
-                ktail: &*(cq_ring_ptr
-                    .add(params.cq_off.tail as usize)
-                    as *const AtomicU32),
-                kring_mask: &*(cq_ring_ptr
-                    .add(params.cq_off.ring_mask as usize)
-                    as *const u32),
-                koverflow: &*(cq_ring_ptr
-                    .add(params.cq_off.overflow as usize)
-                    as *const AtomicU32),
+                khead: &*(cq_ring_ptr.add(params.cq_off.head as usize) as *const AtomicU32),
+                ktail: &*(cq_ring_ptr.add(params.cq_off.tail as usize) as *const AtomicU32),
+                kring_mask: &*(cq_ring_ptr.add(params.cq_off.ring_mask as usize) as *const u32),
+                koverflow: &*(cq_ring_ptr.add(params.cq_off.overflow as usize) as *const AtomicU32),
                 cqes: from_raw_parts_mut(
-                    cq_ring_ptr
-                        .add(params.cq_off.cqes as usize)
-                        as _,
+                    cq_ring_ptr.add(params.cq_off.cqes as usize) as _,
                     params.cq_entries as usize,
                 ),
                 in_flight: in_flight.clone(),
@@ -114,8 +96,7 @@ impl Cq {
         // limitation as of rust 1.40
         let mut cq_opt = Some(self);
 
-        let mut to_push =
-            Vec::with_capacity(count as usize);
+        let mut to_push = Vec::with_capacity(count as usize);
 
         while head != tail {
             let cq = cq_opt.take().unwrap();
@@ -127,17 +108,15 @@ impl Cq {
             // will tend not to be. if it's not a
             // poison pill, it will be up to as large
             // as the completion queue length.
-            let (ticket, poisoned) =
-                if cqe.user_data > u64::max_value() / 2 {
-                    (cqe.user_data ^ u64::max_value(), true)
-                } else {
-                    (cqe.user_data, false)
-                };
+            let (ticket, poisoned) = if cqe.user_data > u64::max_value() / 2 {
+                (cqe.user_data ^ u64::max_value(), true)
+            } else {
+                (cqe.user_data, false)
+            };
 
             let res = cqe.res;
 
-            let completion_filler =
-                cq.in_flight.take_filler(ticket as usize);
+            let completion_filler = cq.in_flight.take_filler(ticket as usize);
             to_push.push(ticket as usize);
 
             let result = if res < 0 {
@@ -157,11 +136,7 @@ impl Cq {
             }
         }
 
-        cq_opt
-            .take()
-            .unwrap()
-            .ticket_queue
-            .push_multi(to_push);
+        cq_opt.take().unwrap().ticket_queue.push_multi(to_push);
 
         Some(count as usize)
     }

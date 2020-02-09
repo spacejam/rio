@@ -1,7 +1,4 @@
-use std::{
-    io,
-    net::{TcpListener},
-};
+use std::{io, net::TcpListener};
 
 const RESP: &'static str = "HTTP/1.0 200 OK\r\n\r\n";
 
@@ -24,8 +21,7 @@ fn serve(ring: rio::Rio, acceptor: TcpListener) -> io::Result<()> {
             let stream = ring.accept(&acceptor).wait()?;
             let mut buf = RESP;
             while !buf.is_empty() {
-                let written_bytes =
-                    ring.write_at(&stream, &buf, 0).await?;
+                let written_bytes = ring.write_at(&stream, &buf, 0).await?;
                 buf = &buf[written_bytes..];
             }
             COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -42,9 +38,7 @@ fn main() -> io::Result<()> {
     for _ in 0..1 {
         let acceptor = acceptor.try_clone().unwrap();
         let ring = ring.clone();
-        threads.push(std::thread::spawn(move || {
-            serve(ring, acceptor)
-        }));
+        threads.push(std::thread::spawn(move || serve(ring, acceptor)));
     }
 
     threads.push(std::thread::spawn(counter));

@@ -15,10 +15,7 @@ use std::{
     },
 };
 
-use super::{
-    pair, AsIoVec, AsIoVecMut, Completion, Filler, FromCqe,
-    Measure, M,
-};
+use super::{pair, AsIoVec, AsIoVecMut, Completion, Filler, FromCqe, Measure, M};
 
 mod config;
 mod constants;
@@ -34,9 +31,7 @@ pub(crate) use {
     constants::*,
     cq::Cq,
     in_flight::InFlight,
-    kernel_types::{
-        io_uring_cqe, io_uring_params, io_uring_sqe,
-    },
+    kernel_types::{io_uring_cqe, io_uring_params, io_uring_sqe},
     sq::Sq,
     syscall::{enter, setup},
     ticket_queue::TicketQueue,
@@ -73,11 +68,7 @@ pub enum Ordering {
     Drain,
 }
 
-fn uring_mmap(
-    size: usize,
-    ring_fd: i32,
-    offset: i64,
-) -> io::Result<*mut libc::c_void> {
+fn uring_mmap(size: usize, ring_fd: i32, offset: i64) -> io::Result<*mut libc::c_void> {
     #[allow(unsafe_code)]
     let ptr = unsafe {
         libc::mmap(

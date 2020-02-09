@@ -10,23 +10,14 @@ const SETUP: c_long = 425;
 const ENTER: c_long = 426;
 const REGISTER: c_long = 427;
 
-pub(crate) fn setup(
-    entries: c_uint,
-    p: *mut io_uring_params,
-) -> io::Result<c_int> {
+pub(crate) fn setup(entries: c_uint, p: *mut io_uring_params) -> io::Result<c_int> {
     assert!(
         (1..=4096).contains(&entries),
         "entries must be between 1 and 4096 (inclusive)"
     );
-    assert_eq!(
-        entries.count_ones(),
-        1,
-        "entries must be a power of 2"
-    );
+    assert_eq!(entries.count_ones(), 1, "entries must be a power of 2");
     #[allow(unsafe_code)]
-    let ret = unsafe {
-        syscall(SETUP, i64::from(entries), p as c_long)
-    };
+    let ret = unsafe { syscall(SETUP, i64::from(entries), p as c_long) };
     if ret < 0 {
         let mut err = io::Error::last_os_error();
         if let Some(12) = err.raw_os_error() {
@@ -62,8 +53,7 @@ pub(crate) fn enter(
                 i64::from(min_complete),
                 i64::from(flags),
                 sig as c_long,
-                core::mem::size_of::<libc::sigset_t>()
-                    as c_long,
+                core::mem::size_of::<libc::sigset_t>() as c_long,
             )
         };
         if ret < 0 {

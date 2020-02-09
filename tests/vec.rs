@@ -13,9 +13,7 @@ fn test_vec_value() {
 
     let buffer: Vec<u8> = b"hello world!".to_vec();
     ring.write_at(&file, &buffer, 0).wait().unwrap();
-    ring.sync_file_range(&file, 0, buffer.len())
-        .wait()
-        .unwrap();
+    ring.sync_file_range(&file, 0, buffer.len()).wait().unwrap();
 
     let mut contents = vec![];
     file.read_to_end(&mut contents).unwrap();

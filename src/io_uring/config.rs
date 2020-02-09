@@ -51,57 +51,43 @@ impl Default for Config {
 impl Config {
     /// Start the `Rio` system.
     pub fn start(mut self) -> io::Result<Rio> {
-        let mut params =
-            if let Some(params) = self.raw_params.take() {
-                params
-            } else {
-                let mut params = io_uring_params::default();
+        let mut params = if let Some(params) = self.raw_params.take() {
+            params
+        } else {
+            let mut params = io_uring_params::default();
 
-                if self.sq_poll {
-                    // set SQPOLL mode to avoid needing wakeup
-                    params.flags = IORING_SETUP_SQPOLL;
-                    params.sq_thread_cpu =
-                        self.sq_poll_affinity;
-                }
+            if self.sq_poll {
+                // set SQPOLL mode to avoid needing wakeup
+                params.flags = IORING_SETUP_SQPOLL;
+                params.sq_thread_cpu = self.sq_poll_affinity;
+            }
 
-                params
-            };
+            params
+        };
 
         let params_ptr: *mut io_uring_params = &mut params;
 
-        let ring_fd = setup(
-            u32::try_from(self.depth).unwrap(),
-            params_ptr,
-        )?;
+        let ring_fd = setup(u32::try_from(self.depth).unwrap(), params_ptr)?;
 
         if ring_fd < 0 {
             let mut err = io::Error::last_os_error();
             if let Some(12) = err.raw_os_error() {
                 err = io::Error::new(
-                io::ErrorKind::Other,
-                "Not enough lockable memory. You probably \
+                    io::ErrorKind::Other,
+                    "Not enough lockable memory. You probably \
                  need to raise the memlock rlimit, which \
                  often defaults to a pretty low number.",
-            );
+                );
             }
             return Err(err);
         }
 
-        let in_flight = Arc::new(InFlight::new(
-            params.cq_entries as usize,
-        ));
+        let in_flight = Arc::new(InFlight::new(params.cq_entries as usize));
 
-        let ticket_queue = Arc::new(TicketQueue::new(
-            params.cq_entries as usize,
-        ));
+        let ticket_queue = Arc::new(TicketQueue::new(params.cq_entries as usize));
 
         let sq = Sq::new(&params, ring_fd)?;
-        let cq = Cq::new(
-            &params,
-            ring_fd,
-            in_flight.clone(),
-            ticket_queue.clone(),
-        )?;
+        let cq = Cq::new(&params, ring_fd, in_flight.clone(), ticket_queue.clone())?;
 
         std::thread::spawn(move || {
             let mut cq = cq;

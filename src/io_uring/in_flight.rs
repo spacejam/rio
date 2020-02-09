@@ -9,10 +9,7 @@ pub(crate) struct InFlight {
 }
 
 impl std::fmt::Debug for InFlight {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "InFlight {{ .. }}")
     }
 }
@@ -29,9 +26,7 @@ impl InFlight {
         let msghdrs = UnsafeCell::new(vec![
             libc::msghdr {
                 msg_name: null_mut(),
-                msg_namelen: std::mem::size_of::<
-                    libc::sockaddr_in,
-                >() as u32,
+                msg_namelen: std::mem::size_of::<libc::sockaddr_in>() as u32,
                 msg_iov: null_mut(),
                 msg_iovlen: 1,
                 msg_control: null_mut(),
@@ -67,20 +62,15 @@ impl InFlight {
                 (*iovec_ptr)[ticket] = iovec;
 
                 if msghdr {
-                    (*msghdr_ptr)[ticket].msg_iov =
-                        (*iovec_ptr)
-                            .as_mut_ptr()
-                            .add(ticket);
+                    (*msghdr_ptr)[ticket].msg_iov = (*iovec_ptr).as_mut_ptr().add(ticket);
                 }
             }
             (*self.fillers.get())[ticket] = Some(filler);
             if iovec.is_some() {
                 if msghdr {
-                    (*msghdr_ptr).as_mut_ptr().add(ticket)
-                        as u64
+                    (*msghdr_ptr).as_mut_ptr().add(ticket) as u64
                 } else {
-                    (*iovec_ptr).as_mut_ptr().add(ticket)
-                        as u64
+                    (*iovec_ptr).as_mut_ptr().add(ticket) as u64
                 }
             } else {
                 0
@@ -88,10 +78,7 @@ impl InFlight {
         }
     }
 
-    pub(crate) fn take_filler(
-        &self,
-        ticket: usize,
-    ) -> Filler {
+    pub(crate) fn take_filler(&self, ticket: usize) -> Filler {
         #[allow(unsafe_code)]
         unsafe {
             (*self.fillers.get())[ticket].take().unwrap()

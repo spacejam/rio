@@ -73,12 +73,8 @@ impl io_uring_sqe {
     fn apply_order(&mut self, ordering: Ordering) {
         match ordering {
             Ordering::None => {}
-            Ordering::Link => {
-                self.flags |= IOSQE_IO_LINK
-            }
-            Ordering::Drain => {
-                self.flags |= IOSQE_IO_DRAIN
-            }
+            Ordering::Link => self.flags |= IOSQE_IO_LINK,
+            Ordering::Drain => self.flags |= IOSQE_IO_DRAIN,
         }
     }
 }
@@ -104,10 +100,7 @@ impl Default for io_uring_sqe__bindgen_ty_1 {
 }
 
 impl fmt::Debug for io_uring_sqe__bindgen_ty_1 {
-    fn fmt(
-        &self,
-        f: &mut fmt::Formatter<'_>,
-    ) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "io_uring_sqe__bindgen_ty_1")
     }
 }
@@ -121,10 +114,7 @@ pub union io_uring_sqe__bindgen_ty_2 {
 }
 
 impl fmt::Debug for io_uring_sqe__bindgen_ty_2 {
-    fn fmt(
-        &self,
-        f: &mut fmt::Formatter<'_>,
-    ) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "io_uring_sqe__bindgen_ty_2")
     }
 }

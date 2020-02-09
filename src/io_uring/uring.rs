@@ -33,18 +33,11 @@ unsafe impl Sync for Uring {}
 
 impl Drop for Uring {
     fn drop(&mut self) {
-        let poison_pill_res =
-            self.with_sqe::<_, ()>(None, false, |sqe| {
-                sqe.prep_rw(
-                    IORING_OP_NOP,
-                    0,
-                    1,
-                    0,
-                    Ordering::Drain,
-                );
-                // set the poison pill
-                sqe.user_data ^= u64::max_value();
-            });
+        let poison_pill_res = self.with_sqe::<_, ()>(None, false, |sqe| {
+            sqe.prep_rw(IORING_OP_NOP, 0, 1, 0, Ordering::Drain);
+            // set the poison pill
+            sqe.user_data ^= u64::max_value();
+        });
 
         // this waits for the NOP event to complete.
         drop(poison_pill_res);
@@ -77,10 +70,7 @@ impl Uring {
         }
     }
 
-    pub(crate) fn ensure_submitted(
-        &self,
-        sqe_id: u64,
-    ) -> io::Result<()> {
+    pub(crate) fn ensure_submitted(&self, sqe_id: u64) -> io::Result<()> {
         let current = self.submitted.load(Acquire);
         if current >= sqe_id {
             return Ok(());
@@ -90,10 +80,8 @@ impl Uring {
             self.sq.lock().unwrap()
         };
         let _hold_sq_mu = Measure::new(&M.sq_mu_hold);
-        let submitted =
-            sq.submit_all(self.flags, self.ring_fd);
-        let old =
-            self.submitted.fetch_add(submitted, Release);
+        let submitted = sq.submit_all(self.flags, self.ring_fd);
+        let old = self.submitted.fetch_add(submitted, Release);
 
         if self.flags & IORING_SETUP_SQPOLL == 0 {
             // we only check this if we're running in
@@ -119,10 +107,7 @@ impl Uring {
     ///
     /// This only becomes usable on linux kernels
     /// 5.5 and up.
-    pub fn accept<'a>(
-        &'a self,
-        tcp_listener: &'a TcpListener,
-    ) -> Completion<'a, TcpStream> {
+    pub fn accept<'a>(&'a self, tcp_listener: &'a TcpListener) -> Completion<'a, TcpStream> {
         self.with_sqe(None, false, |sqe| {
             sqe.prep_rw(
                 IORING_OP_ACCEPT,
@@ -144,11 +129,7 @@ impl Uring {
     ///
     /// This only becomes usable on linux kernels
     /// 5.6 and up.
-    pub fn send<'a, F, B>(
-        &'a self,
-        stream: &'a F,
-        iov: &'a B,
-    ) -> Completion<'a, usize>
+    pub fn send<'a, F, B>(&'a self, stream: &'a F, iov: &'a B) -> Completion<'a, usize>
     where
         F: AsRawFd,
         B: 'a + AsIoVec,
@@ -181,13 +162,7 @@ impl Uring {
         let iov = iov.into_new_iovec();
 
         self.with_sqe(None, true, |sqe| {
-            sqe.prep_rw(
-                IORING_OP_SEND,
-                stream.as_raw_fd(),
-                0,
-                0,
-                ordering,
-            );
+            sqe.prep_rw(IORING_OP_SEND, stream.as_raw_fd(), 0, 0, ordering);
             sqe.addr = iov.iov_base as u64;
             sqe.len = u32::try_from(iov.iov_len).unwrap();
         })
@@ -204,11 +179,7 @@ impl Uring {
     ///
     /// This only becomes usable on linux kernels
     /// 5.6 and up.
-    pub fn recv<'a, F, B>(
-        &'a self,
-        stream: &'a F,
-        iov: &'a B,
-    ) -> Completion<'a, usize>
+    pub fn recv<'a, F, B>(&'a self, stream: &'a F, iov: &'a B) -> Completion<'a, usize>
     where
         F: AsRawFd,
         B: AsIoVec + AsIoVecMut,
@@ -242,13 +213,7 @@ impl Uring {
         let iov = iov.into_new_iovec();
 
         self.with_sqe(Some(iov), true, |sqe| {
-            sqe.prep_rw(
-                IORING_OP_RECV,
-                stream.as_raw_fd(),
-                0,
-                0,
-                ordering,
-            );
+            sqe.prep_rw(IORING_OP_RECV, stream.as_raw_fd(), 0, 0, ordering);
             sqe.len = u32::try_from(iov.iov_len).unwrap();
         })
     }
@@ -273,10 +238,7 @@ impl Uring {
     ///
     /// This does nothing for files opened in
     /// `O_DIRECT` mode.
-    pub fn fsync<'a>(
-        &'a self,
-        file: &'a File,
-    ) -> Completion<'a, ()> {
+    pub fn fsync<'a>(&'a self, file: &'a File) -> Completion<'a, ()> {
         self.fsync_ordered(file, Ordering::None)
     }
 
@@ -308,19 +270,9 @@ impl Uring {
     /// also fsync the parent directory.
     /// This does nothing for files opened in
     /// `O_DIRECT` mode.
-    pub fn fsync_ordered<'a>(
-        &'a self,
-        file: &'a File,
-        ordering: Ordering,
-    ) -> Completion<'a, ()> {
+    pub fn fsync_ordered<'a>(&'a self, file: &'a File, ordering: Ordering) -> Completion<'a, ()> {
         self.with_sqe(None, false, |sqe| {
-            sqe.prep_rw(
-                IORING_OP_FSYNC,
-                file.as_raw_fd(),
-                0,
-                0,
-                ordering,
-            )
+            sqe.prep_rw(IORING_OP_FSYNC, file.as_raw_fd(), 0, 0, ordering)
         })
     }
 
@@ -342,10 +294,7 @@ impl Uring {
     /// also fsync the parent directory.
     /// This does nothing for files opened in
     /// `O_DIRECT` mode.
-    pub fn fdatasync<'a>(
-        &'a self,
-        file: &'a File,
-    ) -> Completion<'a, ()> {
+    pub fn fdatasync<'a>(&'a self, file: &'a File) -> Completion<'a, ()> {
         self.fdatasync_ordered(file, Ordering::None)
     }
 
@@ -384,13 +333,7 @@ impl Uring {
         ordering: Ordering,
     ) -> Completion<'a, ()> {
         self.with_sqe(None, false, |mut sqe| {
-            sqe.prep_rw(
-                IORING_OP_FSYNC,
-                file.as_raw_fd(),
-                0,
-                0,
-                ordering,
-            );
+            sqe.prep_rw(IORING_OP_FSYNC, file.as_raw_fd(), 0, 0, ordering);
             sqe.flags |= IORING_FSYNC_DATASYNC;
         })
     }
@@ -414,12 +357,7 @@ impl Uring {
         offset: u64,
         len: usize,
     ) -> Completion<'a, ()> {
-        self.sync_file_range_ordered(
-            file,
-            offset,
-            len,
-            Ordering::None,
-        )
+        self.sync_file_range_ordered(file, offset, len, Ordering::None)
     }
 
     /// Synchronizes the data associated with a range
@@ -456,8 +394,7 @@ impl Uring {
                 // it performs an identical operation
                 // as SYNC_FILE_RANGE_WAIT_AFTER.
                 // libc::SYNC_FILE_RANGE_WAIT_BEFORE |
-                libc::SYNC_FILE_RANGE_WRITE
-                    | libc::SYNC_FILE_RANGE_WAIT_AFTER,
+                libc::SYNC_FILE_RANGE_WRITE | libc::SYNC_FILE_RANGE_WAIT_AFTER,
             )
             .unwrap();
         })
@@ -472,12 +409,7 @@ impl Uring {
     /// Note that the file argument is generic
     /// for anything that supports AsRawFd:
     /// sockets, files, etc...
-    pub fn write_at<'a, F, B>(
-        &'a self,
-        file: &'a F,
-        iov: &'a B,
-        at: u64,
-    ) -> Completion<'a, usize>
+    pub fn write_at<'a, F, B>(&'a self, file: &'a F, iov: &'a B, at: u64) -> Completion<'a, usize>
     where
         F: AsRawFd,
         B: 'a + AsIoVec,
@@ -519,19 +451,9 @@ impl Uring {
         F: AsRawFd,
         B: 'a + AsIoVec,
     {
-        self.with_sqe(
-            Some(iov.into_new_iovec()),
-            false,
-            |sqe| {
-                sqe.prep_rw(
-                    IORING_OP_WRITEV,
-                    file.as_raw_fd(),
-                    1,
-                    at,
-                    ordering,
-                )
-            },
-        )
+        self.with_sqe(Some(iov.into_new_iovec()), false, |sqe| {
+            sqe.prep_rw(IORING_OP_WRITEV, file.as_raw_fd(), 1, at, ordering)
+        })
     }
 
     /// Reads data into the provided buffer from the
@@ -544,12 +466,7 @@ impl Uring {
     /// Note that the file argument is generic
     /// for anything that supports AsRawFd:
     /// sockets, files, etc...
-    pub fn read_at<'a, F, B>(
-        &'a self,
-        file: &'a F,
-        iov: &'a B,
-        at: u64,
-    ) -> Completion<'a, usize>
+    pub fn read_at<'a, F, B>(&'a self, file: &'a F, iov: &'a B, at: u64) -> Completion<'a, usize>
     where
         F: AsRawFd,
         B: AsIoVec + AsIoVecMut,
@@ -589,19 +506,9 @@ impl Uring {
         F: AsRawFd,
         B: AsIoVec + AsIoVecMut,
     {
-        self.with_sqe(
-            Some(iov.into_new_iovec()),
-            false,
-            |sqe| {
-                sqe.prep_rw(
-                    IORING_OP_READV,
-                    file.as_raw_fd(),
-                    1,
-                    at,
-                    ordering,
-                )
-            },
-        )
+        self.with_sqe(Some(iov.into_new_iovec()), false, |sqe| {
+            sqe.prep_rw(IORING_OP_READV, file.as_raw_fd(), 1, at, ordering)
+        })
     }
 
     /// Don't do anything. This is
@@ -612,10 +519,7 @@ impl Uring {
 
     /// Don't do anything. This is
     /// mostly for debugging and tuning.
-    pub fn nop_ordered<'a>(
-        &'a self,
-        ordering: Ordering,
-    ) -> Completion<'a, ()> {
+    pub fn nop_ordered<'a>(&'a self, ordering: Ordering) -> Completion<'a, ()> {
         self.with_sqe(None, false, |sqe| {
             sqe.prep_rw(IORING_OP_NOP, 0, 1, 0, ordering)
         })
@@ -661,9 +565,7 @@ impl Uring {
         let ticket = self.ticket_queue.pop();
         let (mut completion, filler) = pair(self);
 
-        let data_ptr = self
-            .in_flight
-            .insert(ticket, iovec, msghdr, filler);
+        let data_ptr = self.in_flight.insert(ticket, iovec, msghdr, filler);
 
         let mut sq = {
             let _get_sq_mu = Measure::new(&M.sq_mu_wait);
@@ -671,23 +573,16 @@ impl Uring {
         };
         let _hold_sq_mu = Measure::new(&M.sq_mu_hold);
 
-        completion.sqe_id =
-            self.loaded.fetch_add(1, Release) + 1;
+        completion.sqe_id = self.loaded.fetch_add(1, Release) + 1;
 
         let sqe = {
             let _get_sqe = Measure::new(&M.get_sqe);
             loop {
-                if let Some(sqe) =
-                    sq.try_get_sqe(self.flags)
-                {
+                if let Some(sqe) = sq.try_get_sqe(self.flags) {
                     break sqe;
                 } else {
-                    let submitted = sq.submit_all(
-                        self.flags,
-                        self.ring_fd,
-                    );
-                    self.submitted
-                        .fetch_add(submitted, Release);
+                    let submitted = sq.submit_all(self.flags, self.ring_fd);
+                    self.submitted.fetch_add(submitted, Release);
                 };
             }
         };

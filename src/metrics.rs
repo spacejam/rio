@@ -16,8 +16,7 @@ use super::*;
 
 /// A metric collector for all pagecache users running in this
 /// process.
-pub static M: Lazy<Metrics, fn() -> Metrics> =
-    Lazy::new(Metrics::default);
+pub static M: Lazy<Metrics, fn() -> Metrics> = Lazy::new(Metrics::default);
 
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn clock() -> f64 {
@@ -34,8 +33,7 @@ pub(crate) fn clock() -> f64 {
         #[cfg(not(target_arch = "x86_64"))]
         {
             let u = uptime();
-            (u.as_secs() * 1_000_000_000) as f64
-                + f64::from(u.subsec_nanos())
+            (u.as_secs() * 1_000_000_000) as f64 + f64::from(u.subsec_nanos())
         }
     }
 }
@@ -43,8 +41,7 @@ pub(crate) fn clock() -> f64 {
 // not correct, since it starts counting at the first observance...
 #[cfg(not(target_arch = "x86_64"))]
 pub(crate) fn uptime() -> Duration {
-    static START: Lazy<Instant, fn() -> Instant> =
-        Lazy::new(Instant::now);
+    static START: Lazy<Instant, fn() -> Instant> = Lazy::new(Instant::now);
 
     if cfg!(feature = "no_metrics") {
         Duration::new(0, 0)
@@ -128,27 +125,10 @@ impl Metrics {
             "count",
             "sum (s)"
         );
-        println!(
-            "{}",
-            std::iter::repeat("-")
-                .take(134)
-                .collect::<String>()
-        );
+        println!("{}", std::iter::repeat("-").take(134).collect::<String>());
 
-        let p = |mut tuples: Vec<(
-            String,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-        )>| {
-            tuples
-                .sort_by_key(|t| (t.9 * -1. * 1e3) as i64);
+        let p = |mut tuples: Vec<(String, _, _, _, _, _, _, _, _, _)>| {
+            tuples.sort_by_key(|t| (t.9 * -1. * 1e3) as i64);
             for v in tuples {
                 println!(
                     "{0: >17} | {1: >10.1} | {2: >10.1} | {3: >10.1} \
@@ -182,12 +162,7 @@ impl Metrics {
             lat("ticket q pop", &self.ticket_queue_pop),
         ]);
 
-        println!(
-            "{}",
-            std::iter::repeat("-")
-                .take(134)
-                .collect::<String>()
-        );
+        println!("{}", std::iter::repeat("-").take(134).collect::<String>());
         println!("cq:");
         p(vec![
             lat("cq_mu_wait", &self.cq_mu_wait),
@@ -196,33 +171,18 @@ impl Metrics {
             lat("ticket q push", &self.ticket_queue_push),
         ]);
 
-        println!(
-            "{}",
-            std::iter::repeat("-")
-                .take(134)
-                .collect::<String>()
-        );
+        println!("{}", std::iter::repeat("-").take(134).collect::<String>());
         println!("reaping and waiting:");
         p(vec![
             lat("reap_ready", &self.reap_ready),
             lat("wait", &self.wait),
         ]);
 
-        println!(
-            "{}",
-            std::iter::repeat("-")
-                .take(134)
-                .collect::<String>()
-        );
+        println!("{}", std::iter::repeat("-").take(134).collect::<String>());
 
         #[cfg(feature = "measure_allocs")]
         {
-            println!(
-                "{}",
-                std::iter::repeat("-")
-                    .take(134)
-                    .collect::<String>()
-            );
+            println!("{}", std::iter::repeat("-").take(134).collect::<String>());
             println!("allocation statistics:");
             println!(
                 "total allocations: {}",
@@ -230,8 +190,7 @@ impl Metrics {
             );
             println!(
                 "allocated bytes: {}",
-                measure_allocs::ALLOCATED_BYTES
-                    .load(Acquire)
+                measure_allocs::ALLOCATED_BYTES.load(Acquire)
             );
         }
     }
