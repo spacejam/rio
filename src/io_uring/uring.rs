@@ -1,4 +1,5 @@
 use super::*;
+use std::os::unix::io::{AsRawFd, IntoRawFd};
 
 /// Nice bindings for the shiny new linux IO system
 #[derive(Debug, Clone)]
@@ -131,6 +132,34 @@ impl Uring {
                 0,
                 Ordering::None,
             )
+        })
+    }
+
+    /// Asynchronously connects a `TcpStream` from
+    /// a provided `SocketAddr`.
+    ///
+    /// # Warning
+    ///
+    /// This only becomes usable on linux kernels
+    /// 5.5 and up.
+    pub fn connect<'a, F>(
+        &'a self,
+        socket: &'a F,
+        address: &std::net::SocketAddr,
+        order: Ordering,
+    ) -> Completion<'a, ()>
+      where F: AsRawFd {
+        let (addr, len) = addr2raw(address);
+        self.with_sqe(None, false, |sqe| {
+            sqe.prep_rw(
+                IORING_OP_CONNECT,
+                socket.as_raw_fd(),
+                0,
+                len as u64,
+                order,
+            );
+
+            sqe.addr = addr as u64;
         })
     }
 
@@ -698,4 +727,17 @@ impl Uring {
 
         completion
     }
+}
+
+fn addr2raw(addr: &std::net::SocketAddr) -> (*const libc::sockaddr, libc::socklen_t) {
+  match *addr {
+    std::net::SocketAddr::V4(ref a) => {
+      let b: *const std::net::SocketAddrV4 = a;
+      (b as *const _, std::mem::size_of_val(a) as libc::socklen_t)
+    }
+    std::net::SocketAddr::V6(ref a) => {
+      let b: *const std::net::SocketAddrV6 = a;
+      (b as *const _, std::mem::size_of_val(a) as libc::socklen_t)
+    }
+  }
 }
