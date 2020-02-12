@@ -1,9 +1,4 @@
-use std::{
-    fs::OpenOptions, io::Result,
-    os::unix::fs::OpenOptionsExt,
-    os::unix::io::AsRawFd,
-};
-
+use std::{fs::OpenOptions, io::Result, os::unix::io::AsRawFd};
 
 const CHUNK_SIZE: u64 = 4096 * 256;
 
@@ -17,7 +12,6 @@ struct Aligned([u8; CHUNK_SIZE as usize]);
 fn main() -> Result<()> {
     // start the ring
     let mut config = rio::Config::default();
-    config.sq_poll = true;
     config.print_profile_on_drop = true;
     let ring = config.start().expect("create uring");
 
@@ -38,6 +32,7 @@ fn main() -> Result<()> {
     let mut completions = vec![];
 
     let pre = std::time::Instant::now();
+    dbg!();
     for i in 0..(10) {
         let at = i * CHUNK_SIZE;
 
@@ -45,17 +40,21 @@ fn main() -> Result<()> {
         // we specify that the following
         // read should happen after this
         // write.
-        let write = ring.write_at_ordered(
-            &file,
-            &out_slice,
-            at,
-            rio::Ordering::Link,
-        );
+        let write = ring.write_at_ordered(&file, &out_slice, at, rio::Ordering::Link);
         completions.push(write);
     }
+
     for completion in completions.drain(..) {
         completion.wait()?;
     }
+    dbg!();
+
+    let mut config = rio::Config::default();
+    config.sq_poll = true;
+    config.print_profile_on_drop = true;
+    let ring = config.start().expect("create uring");
+
+    let mut completions = vec![];
 
     // open output file, with `O_DIRECT` set
     let file = dbg!(OpenOptions::new()
@@ -66,24 +65,22 @@ fn main() -> Result<()> {
     let fds = dbg!([file.as_raw_fd()]);
     dbg!(ring.register(&fds).expect("Failed to register"));
 
-    
-    
     // This operation will not start
     // until the previous linked one
     // finishes.
-    
+
     for i in 0..(10) {
         dbg!();
         let at = i * CHUNK_SIZE;
-        let read = dbg!(ring.registered_file_read_at(0, &in_slice, at));
-        completions.push(dbg!(read));
+        let read = ring.registered_file_read_at(0, &in_slice, at);
+        completions.push(read);
     }
-    
-    panic!("snot");
+
     let post_submit = std::time::Instant::now();
 
-    for completion in completions.into_iter() {
-        completion.wait()?;
+    dbg!();
+    for completion in completions.drain(..) {
+        dbg!(completion.wait()?);
     }
 
     let post_complete = std::time::Instant::now();
