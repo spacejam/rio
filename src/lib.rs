@@ -27,7 +27,7 @@
 //! and backing buffer is dropped, it
 //! waits for its backing operation to complete
 //! before returning from Drop, to further
-//! prevent use-after-frees. use-after-frees
+//! prevent use-after-frees. Use-after-frees
 //! are not expressible when using `rio`.
 //!
 //! # Examples
