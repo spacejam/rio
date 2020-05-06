@@ -307,7 +307,5 @@ impl FromCqe for usize {
 }
 
 impl FromCqe for () {
-    fn from_cqe(_: io_uring::io_uring_cqe) -> () {
-        ()
-    }
+    fn from_cqe(_: io_uring::io_uring_cqe) {}
 }

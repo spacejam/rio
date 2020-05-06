@@ -1,3 +1,5 @@
+#![allow(unsafe_code)]
+
 use std::slice::from_raw_parts_mut;
 
 use super::*;
@@ -5,11 +7,11 @@ use super::*;
 /// Sprays uring submissions.
 #[derive(Debug)]
 pub(crate) struct Sq {
-    khead: &'static AtomicU32,
-    ktail: &'static AtomicU32,
-    kring_mask: &'static u32,
-    kflags: &'static AtomicU32,
-    kdropped: &'static AtomicU32,
+    khead: *mut AtomicU32,
+    ktail: *mut AtomicU32,
+    kring_mask: *mut u32,
+    kflags: *mut AtomicU32,
+    kdropped: *mut AtomicU32,
     array: &'static mut [AtomicU32],
     sqes: &'static mut [io_uring_sqe],
     sqe_head: u32,
@@ -64,7 +66,6 @@ impl Sq {
             IORING_OFF_SQES,
         )? as _;
 
-        #[allow(unsafe_code)]
         Ok(unsafe {
             Sq {
                 sqe_head: 0,
@@ -72,29 +73,29 @@ impl Sq {
                 ring_ptr: sq_ring_ptr,
                 ring_mmap_sz: sq_ring_mmap_sz,
                 sqes_mmap_sz,
-                sqes: from_raw_parts_mut(
-                    sqes_ptr,
-                    params.sq_entries as usize,
-                ),
-                khead: &*(sq_ring_ptr
+                khead: sq_ring_ptr
                     .add(params.sq_off.head as usize)
-                    as *const AtomicU32),
-                ktail: &*(sq_ring_ptr
+                    as *mut AtomicU32,
+                ktail: sq_ring_ptr
                     .add(params.sq_off.tail as usize)
-                    as *const AtomicU32),
-                kring_mask: &*(sq_ring_ptr
+                    as *mut AtomicU32,
+                kring_mask: sq_ring_ptr
                     .add(params.sq_off.ring_mask as usize)
-                    as *const u32),
-                kflags: &*(sq_ring_ptr
+                    as *mut u32,
+                kflags: sq_ring_ptr
                     .add(params.sq_off.flags as usize)
-                    as *const AtomicU32),
-                kdropped: &*(sq_ring_ptr
+                    as *mut AtomicU32,
+                kdropped: sq_ring_ptr
                     .add(params.sq_off.dropped as usize)
-                    as *const AtomicU32),
+                    as *mut AtomicU32,
                 array: from_raw_parts_mut(
                     sq_ring_ptr
                         .add(params.sq_off.array as usize)
                         as _,
+                    params.sq_entries as usize,
+                ),
+                sqes: from_raw_parts_mut(
+                    sqes_ptr,
                     params.sq_entries as usize,
                 ),
             }
@@ -113,11 +114,12 @@ impl Sq {
                 self.sqe_head
             } else {
                 // polling mode
-                self.khead.load(Acquire)
+                unsafe { &*self.khead }.load(Acquire)
             };
 
         if next - head <= self.sqes.len() as u32 {
-            let idx = self.sqe_tail & self.kring_mask;
+            let idx =
+                self.sqe_tail & unsafe { *self.kring_mask };
             let sqe = &mut self.sqes[idx as usize];
             self.sqe_tail = next;
 
@@ -129,10 +131,11 @@ impl Sq {
 
     // sets sq.array to point to current sq.sqe_head
     fn flush(&mut self) -> u32 {
-        let mask: u32 = *self.kring_mask;
+        let mask: u32 = unsafe { *self.kring_mask };
         let to_submit = self.sqe_tail - self.sqe_head;
 
-        let mut ktail = self.ktail.load(Acquire);
+        let mut ktail =
+            unsafe { &*self.ktail }.load(Acquire);
 
         for _ in 0..to_submit {
             let index = ktail & mask;
@@ -142,7 +145,9 @@ impl Sq {
             self.sqe_head += 1;
         }
 
-        let swapped = self.ktail.swap(ktail, Release);
+        let swapped =
+            unsafe { &*self.ktail }.swap(ktail, Release);
+
         assert_eq!(swapped, ktail - to_submit);
 
         to_submit
@@ -180,7 +185,7 @@ impl Sq {
                 to_submit -= u32::try_from(ret).unwrap();
             }
             flushed
-        } else if self.kflags.load(Acquire)
+        } else if unsafe { &*self.kflags }.load(Acquire)
             & IORING_SQ_NEED_WAKEUP
             != 0
         {
@@ -205,7 +210,10 @@ impl Sq {
         } else {
             0
         };
-        assert_eq!(self.kdropped.load(Relaxed), 0);
+        assert_eq!(
+            unsafe { &*self.kdropped }.load(Relaxed),
+            0
+        );
         u64::from(submitted)
     }
 }
