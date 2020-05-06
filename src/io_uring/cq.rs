@@ -1,3 +1,5 @@
+#![allow(unsafe_code)]
+
 use std::slice::from_raw_parts_mut;
 
 use super::*;
@@ -5,11 +7,11 @@ use super::*;
 /// Consumes uring completions.
 #[derive(Debug)]
 pub struct Cq {
-    khead: &'static AtomicU32,
-    ktail: &'static AtomicU32,
-    kring_mask: &'static u32,
-    koverflow: &'static AtomicU32,
-    cqes: &'static mut [io_uring_cqe],
+    khead: *mut AtomicU32,
+    ktail: *mut AtomicU32,
+    kring_mask: *mut u32,
+    koverflow: *mut AtomicU32,
+    cqes: *mut [io_uring_cqe],
     ticket_queue: Arc<TicketQueue>,
     in_flight: Arc<InFlight>,
     ring_ptr: *const libc::c_void,
@@ -54,18 +56,18 @@ impl Cq {
             Cq {
                 ring_ptr: cq_ring_ptr,
                 ring_mmap_sz: cq_ring_mmap_sz,
-                khead: &*(cq_ring_ptr
+                khead: cq_ring_ptr
                     .add(params.cq_off.head as usize)
-                    as *const AtomicU32),
-                ktail: &*(cq_ring_ptr
+                    as *mut AtomicU32,
+                ktail: cq_ring_ptr
                     .add(params.cq_off.tail as usize)
-                    as *const AtomicU32),
-                kring_mask: &*(cq_ring_ptr
+                    as *mut AtomicU32,
+                kring_mask: cq_ring_ptr
                     .add(params.cq_off.ring_mask as usize)
-                    as *const u32),
-                koverflow: &*(cq_ring_ptr
+                    as *mut u32,
+                koverflow: cq_ring_ptr
                     .add(params.cq_off.overflow as usize)
-                    as *const AtomicU32),
+                    as *mut AtomicU32,
                 cqes: from_raw_parts_mut(
                     cq_ring_ptr
                         .add(params.cq_off.cqes as usize)
@@ -95,7 +97,12 @@ impl Cq {
             if let Err(e) = block_for_cqe(ring_fd) {
                 panic!("error in cqe reaper: {:?}", e);
             } else {
-                assert_eq!(self.koverflow.load(Relaxed), 0);
+                assert_eq!(
+                    unsafe {
+                        (*self.koverflow).load(Relaxed)
+                    },
+                    0
+                );
                 if self.reap_ready_cqes().is_none() {
                     // poison pill detected, time to shut down
                     return;
@@ -106,8 +113,9 @@ impl Cq {
 
     fn reap_ready_cqes(&mut self) -> Option<usize> {
         let _ = Measure::new(&M.reap_ready);
-        let mut head = self.khead.load(Acquire);
-        let tail = self.ktail.load(Acquire);
+        let mut head =
+            unsafe { &*self.khead }.load(Acquire);
+        let tail = unsafe { &*self.ktail }.load(Acquire);
         let count = tail - head;
 
         // hack to get around mutable usage in loop
@@ -119,8 +127,8 @@ impl Cq {
 
         while head != tail {
             let cq = cq_opt.take().unwrap();
-            let index = head & cq.kring_mask;
-            let cqe = &cq.cqes[index as usize];
+            let index = head & unsafe { *cq.kring_mask };
+            let cqe = &unsafe { &*cq.cqes }[index as usize];
 
             // we detect a poison pill by seeing if
             // the user_data is really big, which it
@@ -148,7 +156,7 @@ impl Cq {
 
             completion_filler.fill(result);
 
-            cq.khead.fetch_add(1, Release);
+            unsafe { &*cq.khead }.fetch_add(1, Release);
             cq_opt = Some(cq);
             head += 1;
 

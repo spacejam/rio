@@ -29,6 +29,13 @@ impl Default for CompletionState {
 }
 
 /// A Future value which may or may not be filled
+///
+/// # Safety
+///
+/// Never call `std::mem::forget` on this value.
+/// It can lead to a use-after-free bug. The fact
+/// that `std::mem::forget` is not marked unsafe
+/// is a bug in the Rust standard library.
 #[derive(Debug)]
 pub struct Completion<'a, C: FromCqe> {
     lifetime: PhantomData<&'a C>,
@@ -97,9 +104,9 @@ impl<'a, C: FromCqe> Completion<'a, C> {
             inner = self.cv.wait(inner).unwrap();
         }
 
-        return inner.item.take().map(|io_result| {
+        inner.item.take().map(|io_result| {
             io_result.map(FromCqe::from_cqe)
-        });
+        })
     }
 }
 

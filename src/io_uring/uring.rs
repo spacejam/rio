@@ -1,5 +1,4 @@
 use super::*;
-use std::os::unix::io::{AsRawFd, IntoRawFd};
 
 /// Nice bindings for the shiny new linux IO system
 #[derive(Debug, Clone)]
@@ -71,8 +70,8 @@ impl Uring {
             ring_fd,
             sq: Mutex::new(sq),
             config,
-            in_flight: in_flight,
-            ticket_queue: ticket_queue,
+            in_flight,
+            ticket_queue,
             loaded: 0.into(),
             submitted: 0.into(),
         }
@@ -148,7 +147,9 @@ impl Uring {
         address: &std::net::SocketAddr,
         order: Ordering,
     ) -> Completion<'a, ()>
-      where F: AsRawFd {
+    where
+        F: AsRawFd,
+    {
         let (addr, len) = addr2raw(address);
         self.with_sqe(None, false, |sqe| {
             sqe.prep_rw(
@@ -729,15 +730,23 @@ impl Uring {
     }
 }
 
-fn addr2raw(addr: &std::net::SocketAddr) -> (*const libc::sockaddr, libc::socklen_t) {
-  match *addr {
-    std::net::SocketAddr::V4(ref a) => {
-      let b: *const std::net::SocketAddrV4 = a;
-      (b as *const _, std::mem::size_of_val(a) as libc::socklen_t)
+fn addr2raw(
+    addr: &std::net::SocketAddr,
+) -> (*const libc::sockaddr, libc::socklen_t) {
+    match *addr {
+        std::net::SocketAddr::V4(ref a) => {
+            let b: *const std::net::SocketAddrV4 = a;
+            (
+                b as *const _,
+                std::mem::size_of_val(a) as libc::socklen_t,
+            )
+        }
+        std::net::SocketAddr::V6(ref a) => {
+            let b: *const std::net::SocketAddrV6 = a;
+            (
+                b as *const _,
+                std::mem::size_of_val(a) as libc::socklen_t,
+            )
+        }
     }
-    std::net::SocketAddr::V6(ref a) => {
-      let b: *const std::net::SocketAddrV6 = a;
-      (b as *const _, std::mem::size_of_val(a) as libc::socklen_t)
-    }
-  }
 }
