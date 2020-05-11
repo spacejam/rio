@@ -1,4 +1,4 @@
-rio, a pure-rust misuse-resistant io_uring library.
+rio, a pure-rust io_uring library.
 Copyright (C) 2020 Tyler Neely
 
 This program is free software: you can redistribute it and/or modify

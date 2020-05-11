@@ -17,18 +17,17 @@
 //! will all be in scope at the same time while the Completion
 //! is in-use.
 //!
-//! This library aims to be misuse-resistant.
 //! Most of the other io_uring libraries make
 //! it really easy to blow your legs off with
 //! use-after-frees. `rio` uses standard Rust
-//! lifetime specification  to make use-after-frees
+//! lifetime specification  to make most use-after-frees
 //! fail to compile. Also, if a `Completion`
 //! that was pinned to the lifetime of a uring
 //! and backing buffer is dropped, it
 //! waits for its backing operation to complete
 //! before returning from Drop, to further
 //! prevent use-after-frees. use-after-frees
-//! are not expressible when using `rio`.
+//! are difficult to express when using `rio`.
 //!
 //! # Examples
 //!
