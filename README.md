@@ -4,7 +4,7 @@
 
 # rio
 
-misuse-resistant bindings for io_uring, the hottest
+bindings for io_uring, the hottest
 thing to happen to linux IO in a long time.
 
 #### Innovations
