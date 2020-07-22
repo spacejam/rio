@@ -32,10 +32,11 @@ impl Default for CompletionState {
 ///
 /// # Safety
 ///
-/// Never call `std::mem::forget` on this value.
-/// It can lead to a use-after-free bug. The fact
-/// that `std::mem::forget` is not marked unsafe
-/// is a bug in the Rust standard library.
+/// To prevent undefined behavior in the form of
+/// use-after-free, never allow a Completion's
+/// lifetime to end without dropping it. This can
+/// happen with `std::mem::forget`, cycles in
+/// `Arc` or `Rc`, and in other ways.
 #[derive(Debug)]
 pub struct Completion<'a, C: FromCqe> {
     lifetime: PhantomData<&'a C>,
