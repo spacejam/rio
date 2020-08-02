@@ -27,19 +27,11 @@ impl InFlight {
             size
         ]);
         let msghdrs = UnsafeCell::new(vec![
-            libc::msghdr {
-                msg_name: null_mut(),
-                msg_namelen: std::mem::size_of::<
-                    libc::sockaddr_in,
-                >() as u32,
-                msg_iov: null_mut(),
-                msg_iovlen: 1,
-                msg_control: null_mut(),
-                msg_controllen: 0,
-                msg_flags: 0,
-            };
+            #[allow(unsafe_code)]
+            unsafe { MaybeUninit::<libc::msghdr>::zeroed().assume_init() };
             size
         ]);
+
         let mut filler_vec = Vec::with_capacity(size);
         for _ in 0..size {
             filler_vec.push(None);
@@ -71,6 +63,7 @@ impl InFlight {
                         (*iovec_ptr)
                             .as_mut_ptr()
                             .add(ticket);
+                    (*msghdr_ptr)[ticket].msg_iovlen = 1;
                 }
             }
             (*self.fillers.get())[ticket] = Some(filler);
