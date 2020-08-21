@@ -1,6 +1,6 @@
 [package]
 name = "rio"
-version = "0.9.3"
+version = "0.9.4"
 authors = ["Tyler Neely <t@jujit.su>"]
 edition = "2018"
 description = "GPL-3.0 nice bindings for io_uring. MIT/Apache-2.0 license is available for spacejam's github sponsors."
