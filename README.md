@@ -7,15 +7,30 @@
 bindings for io_uring, the hottest
 thing to happen to linux IO in a long time.
 
+#### Soundness status
+
+rio aims to leverage Rust's compile-time checks to be
+misuse-resistant compared to io_uring interfaces in
+other languages, but users should beware that
+**use-after-free bugs are still possible without
+`unsafe` when using rio.** `Completion` borrows the
+buffers involved in a request, and its destructor
+blocks in order to delay the freeing of those buffers
+until the corresponding request has completed; but it
+is considered safe in Rust for an object's lifetime
+and borrows to end without its destructor running,
+and this can happen in various ways, including
+through `std::mem::forget`. Be careful not to let
+completions leak in this way, and if Rust's soundness
+guarantees are important to you, you may want to
+avoid this crate.
+
 #### Innovations
 
 * only relies on libc, no need for c/bindgen to
   complicate things, nobody wants that
 * the completions work great with threads or an
   async runtime (`Completion` implements Future)
-* takes advantage of Rust's lifetimes and RAII to guarantee
-  that the kernel will never asynchronously write to memory
-  that Rust has destroyed.
 * uses Rust marker traits to guarantee that a buffer will never
   be written into unless it is writable memory. (prevents
   you from trying to write data into static read-only memory)
