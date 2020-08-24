@@ -12,6 +12,16 @@ impl std::ops::Deref for Rio {
     }
 }
 
+/// Helper to 
+struct RegisteredIdx(usize);
+
+impl AsRawFd for RegisteredIdx {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0 as RawFd
+    }
+}
+
+
 /// The top-level `io_uring` structure.
 #[derive(Debug)]
 pub struct Uring {
@@ -75,7 +85,7 @@ impl Uring {
             loaded: 0.into(),
             submitted: 0.into(),
         }
-    }
+    }    
 
     pub(crate) fn ensure_submitted(
         &self,
@@ -111,6 +121,20 @@ impl Uring {
 
         Ok(())
     }
+
+
+    /// Registers a file for use with SQPULL
+    pub fn register(&self, fds: &[RawFd]) -> io::Result<i32>
+    {
+        use core::ffi::c_void;
+        syscall::register(
+            self.ring_fd,
+            IORING_REGISTER_FILES,
+            fds.as_ptr() as  *const c_void,
+            fds.len() as u32
+        )
+    }
+    
 
     /// Asynchronously accepts a `TcpStream` from
     /// a provided `TcpListener`.
@@ -626,6 +650,57 @@ impl Uring {
                 sqe.prep_rw(
                     IORING_OP_READV,
                     file.as_raw_fd(),
+                    1,
+                    at,
+                    ordering,
+                )
+            },
+        )
+    }
+
+    /// This is a version of `read_at` that
+    /// can be used to read from a registered file.
+    /// 
+    /// To register a file use `register_files`.
+    /// 
+    /// `file_idx` refers to the element in the
+    /// slice passed to `register_files`.
+    pub fn registered_file_read_at<'a, B>(
+        &'a self,
+        file_idx: usize,
+        iov: &'a B,
+        at: u64,
+    ) -> Completion<'a, usize>
+    where
+        B: AsIoVec + AsIoVecMut,
+    {
+        self.registered_file_read_at_ordered(file_idx, iov, at, Ordering::None)
+    }
+
+    /// This is a version of `read_at_ordered` that
+    /// can be used to read from a registered file.
+    /// 
+    /// To register a file use `register_files`.
+    /// 
+    /// `file_idx` refers to the element in the
+    /// slice passed to `register_files`.
+    pub fn registered_file_read_at_ordered<'a, B>(
+        &'a self,
+        file_idx: usize,
+        iov: &'a B,
+        at: u64,
+        ordering: Ordering,
+    ) -> Completion<'a, usize>
+    where
+        B: AsIoVec + AsIoVecMut,
+    {
+        self.with_sqe(
+            Some(iov.into_new_iovec()),
+            false,
+            |sqe| {
+                sqe.registered_file_prep_rw(
+                    IORING_OP_READV,
+                    RegisteredIdx(file_idx).as_raw_fd(),
                     1,
                     at,
                     ordering,

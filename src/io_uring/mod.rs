@@ -5,7 +5,7 @@ use std::{
     io,
     net::{TcpListener, TcpStream},
     ops::Neg,
-    os::unix::io::{AsRawFd, FromRawFd},
+    os::unix::io::{AsRawFd, FromRawFd, RawFd},
     sync::{
         atomic::{
             AtomicU32, AtomicU64,

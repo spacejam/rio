@@ -46,6 +46,7 @@ pub struct io_uring_sqe {
 }
 
 impl io_uring_sqe {
+
     pub(crate) fn prep_rw(
         &mut self,
         opcode: u8,
@@ -54,9 +55,46 @@ impl io_uring_sqe {
         off: u64,
         ordering: Ordering,
     ) {
+        self.prep_rw_with_flags(
+            opcode, 
+            0, 
+            file_descriptor, 
+            len, 
+            off, 
+            ordering
+        )
+    }
+
+    pub(crate) fn registered_file_prep_rw(
+        &mut self,
+        opcode: u8,
+        file_descriptor: i32,
+        len: usize,
+        off: u64,
+        ordering: Ordering,
+    ) {
+        self.prep_rw_with_flags(
+            opcode, 
+            IOSQE_FIXED_FILE, 
+            file_descriptor, 
+            len, 
+            off, 
+            ordering
+        )
+    }
+
+    pub fn prep_rw_with_flags(
+        &mut self,
+        opcode: u8,
+        flags: u8,
+        file_descriptor: i32,
+        len: usize,
+        off: u64,
+        ordering: Ordering,
+    ) {
         *self = io_uring_sqe {
             opcode,
-            flags: 0,
+            flags,
             ioprio: 0,
             fd: file_descriptor,
             len: u32::try_from(len).unwrap(),
