@@ -289,22 +289,31 @@ pub trait AsIoVecMut {}
 
 impl<A: ?Sized + AsMut<[u8]>> AsIoVecMut for A {}
 
+/// Successful operation return data from a completed CQ entry,
+/// including both the low-level `io_uring_cqe` as well as any
+/// socket address information received from the `msghdr`.
+#[derive(Debug, Copy, Clone)]
+pub struct CqeData {
+    cqe: io_uring::io_uring_cqe,
+    address: Option<::std::net::SocketAddr>,
+}
+
 /// A trait for describing transformations from the
 /// `io_uring_cqe` type into an expected meaningful
 /// high-level result.
-pub trait FromCqe {
+pub trait FromCqeData {
     /// Describes a conversion from a successful
     /// `io_uring_cqe` to a desired output type.
-    fn from_cqe(cqe: io_uring::io_uring_cqe) -> Self;
+    fn from_cqe_data(data: CqeData) -> Self;
 }
 
-impl FromCqe for usize {
-    fn from_cqe(cqe: io_uring::io_uring_cqe) -> usize {
+impl FromCqeData for usize {
+    fn from_cqe_data(data: CqeData) -> usize {
         use std::convert::TryFrom;
-        usize::try_from(cqe.res).unwrap()
+        usize::try_from(data.cqe.res).unwrap()
     }
 }
 
-impl FromCqe for () {
-    fn from_cqe(_: io_uring::io_uring_cqe) {}
+impl FromCqeData for () {
+    fn from_cqe_data(_: CqeData) {}
 }
