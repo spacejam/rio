@@ -4,9 +4,7 @@ use std::{
 };
 
 fn main() -> io::Result<()> {
-    let mut config = rio::Config::default();
-    config.depth = 4096;
-    let ring = config.start()?;
+    let ring = rio::new();
     let socket = UdpSocket::bind("0.0.0.0:34254")?;
 
     extreme::run(async {
