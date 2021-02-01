@@ -17,7 +17,7 @@ use std::{
 };
 
 use super::{
-    pair, AsIoVec, AsIoVecMut, Completion, Filler, FromCqe,
+    pair, AsIoVec, AsIoVecMut, Completion, CqeData, Filler, FromCqeData,
     Measure, M,
 };
 
@@ -107,11 +107,39 @@ fn uring_mmap(
     Ok(ptr)
 }
 
-impl FromCqe for TcpStream {
-    fn from_cqe(cqe: io_uring_cqe) -> TcpStream {
+impl FromCqeData for TcpStream {
+    fn from_cqe_data(data: CqeData) -> TcpStream {
         #[allow(unsafe_code)]
         unsafe {
-            TcpStream::from_raw_fd(cqe.res)
+            TcpStream::from_raw_fd(data.cqe.res)
+        }
+    }
+}
+
+impl FromCqeData for (usize, ::std::net::SocketAddr) {
+    fn from_cqe_data(data: CqeData) -> (usize, ::std::net::SocketAddr) {
+        let bytes = usize::try_from(data.cqe.res).unwrap();
+        (bytes, data.address.unwrap())
+    }
+}
+
+fn addr2raw(
+    addr: &std::net::SocketAddr,
+) -> (*const libc::sockaddr, libc::socklen_t) {
+    match *addr {
+        std::net::SocketAddr::V4(ref a) => {
+            let b: *const std::net::SocketAddrV4 = a;
+            (
+                b as *const _,
+                std::mem::size_of_val(a) as libc::socklen_t,
+            )
+        }
+        std::net::SocketAddr::V6(ref a) => {
+            let b: *const std::net::SocketAddrV6 = a;
+            (
+                b as *const _,
+                std::mem::size_of_val(a) as libc::socklen_t,
+            )
         }
     }
 }

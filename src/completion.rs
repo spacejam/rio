@@ -8,13 +8,13 @@ use std::{
 };
 
 use super::{
-    io_uring::io_uring_cqe, FromCqe, Measure, Uring, M,
+    CqeData, FromCqeData, Measure, Uring, M,
 };
 
 #[derive(Debug)]
 struct CompletionState {
     done: bool,
-    item: Option<io::Result<io_uring_cqe>>,
+    item: Option<io::Result<CqeData>>,
     waker: Option<Waker>,
 }
 
@@ -38,7 +38,7 @@ impl Default for CompletionState {
 /// happen with `std::mem::forget`, cycles in
 /// `Arc` or `Rc`, and in other ways.
 #[derive(Debug)]
-pub struct Completion<'a, C: FromCqe> {
+pub struct Completion<'a, C: FromCqeData> {
     lifetime: PhantomData<&'a C>,
     mu: Arc<Mutex<CompletionState>>,
     cv: Arc<Condvar>,
@@ -55,7 +55,7 @@ pub struct Filler {
 
 /// Create a new `Filler` and the `Completion`
 /// that will be filled by its completion.
-pub fn pair<'a, C: FromCqe>(
+pub fn pair<'a, C: FromCqeData>(
     uring: &'a Uring,
 ) -> (Completion<'a, C>, Filler) {
     let mu =
@@ -73,19 +73,19 @@ pub fn pair<'a, C: FromCqe>(
     (future, filler)
 }
 
-impl<'a, C: FromCqe> Completion<'a, C> {
+impl<'a, C: FromCqeData> Completion<'a, C> {
     /// Block on the `Completion`'s completion
     /// or dropping of the `Filler`
     pub fn wait(self) -> io::Result<C>
     where
-        C: FromCqe,
+        C: FromCqeData,
     {
         self.wait_inner().unwrap()
     }
 
     fn wait_inner(&self) -> Option<io::Result<C>>
     where
-        C: FromCqe,
+        C: FromCqeData,
     {
         debug_assert_ne!(
             self.sqe_id,
@@ -106,18 +106,18 @@ impl<'a, C: FromCqe> Completion<'a, C> {
         }
 
         inner.item.take().map(|io_result| {
-            io_result.map(FromCqe::from_cqe)
+            io_result.map(FromCqeData::from_cqe_data)
         })
     }
 }
 
-impl<'a, C: FromCqe> Drop for Completion<'a, C> {
+impl<'a, C: FromCqeData> Drop for Completion<'a, C> {
     fn drop(&mut self) {
         self.wait_inner();
     }
 }
 
-impl<'a, C: FromCqe> Future for Completion<'a, C> {
+impl<'a, C: FromCqeData> Future for Completion<'a, C> {
     type Output = io::Result<C>;
 
     fn poll(
@@ -135,7 +135,7 @@ impl<'a, C: FromCqe> Future for Completion<'a, C> {
                     .item
                     .take()
                     .unwrap()
-                    .map(FromCqe::from_cqe),
+                    .map(FromCqeData::from_cqe_data),
             )
         } else {
             if !state.done {
@@ -148,7 +148,7 @@ impl<'a, C: FromCqe> Future for Completion<'a, C> {
 
 impl Filler {
     /// Complete the `Completion`
-    pub fn fill(self, inner: io::Result<io_uring_cqe>) {
+    pub fn fill(self, inner: io::Result<CqeData>) {
         let mut state = self.mu.lock().unwrap();
 
         if let Some(waker) = state.waker.take() {

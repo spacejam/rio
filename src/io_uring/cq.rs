@@ -151,7 +151,11 @@ impl Cq {
             let result = if res < 0 {
                 Err(io::Error::from_raw_os_error(res.neg()))
             } else {
-                Ok(*cqe)
+                let address = cq.in_flight.take_address(ticket as usize);
+                Ok(CqeData{
+                    cqe: *cqe,
+                    address: address,
+                })
             };
 
             completion_filler.fill(result);

@@ -25,6 +25,12 @@ pub struct Uring {
     submitted: AtomicU64,
 }
 
+enum MsgInfo<'a> {
+    None,
+    VecOnly,
+    VecAndAddress(&'a ::std::net::SocketAddr),
+}
+
 #[allow(unsafe_code)]
 unsafe impl Send for Uring {}
 
@@ -34,7 +40,7 @@ unsafe impl Sync for Uring {}
 impl Drop for Uring {
     fn drop(&mut self) {
         let poison_pill_res =
-            self.with_sqe::<_, ()>(None, false, |sqe| {
+            self.with_sqe::<_, ()>(None, MsgInfo::None, |sqe| {
                 sqe.prep_rw(
                     IORING_OP_NOP,
                     0,
@@ -123,7 +129,7 @@ impl Uring {
         &'a self,
         tcp_listener: &'a TcpListener,
     ) -> Completion<'a, TcpStream> {
-        self.with_sqe(None, false, |sqe| {
+        self.with_sqe(None, MsgInfo::None, |sqe| {
             sqe.prep_rw(
                 IORING_OP_ACCEPT,
                 tcp_listener.as_raw_fd(),
@@ -151,7 +157,7 @@ impl Uring {
         F: AsRawFd,
     {
         let (addr, len) = addr2raw(address);
-        self.with_sqe(None, false, |sqe| {
+        self.with_sqe(None, MsgInfo::None, |sqe| {
             sqe.prep_rw(
                 IORING_OP_CONNECT,
                 socket.as_raw_fd(),
@@ -186,6 +192,34 @@ impl Uring {
         self.send_ordered(stream, iov, Ordering::None)
     }
 
+    /// Send a message to the specified address on the
+    /// given sessionless datagram socket.
+    ///
+    /// Returns the length that was successfully
+    /// written.
+    pub fn send_to<'a, F, B>(
+        &'a self,
+        socket: &'a F,
+        iov: &'a B,
+        address: &'a ::std::net::SocketAddr,
+    ) -> Completion<'a, usize>
+    where
+        F: AsRawFd,
+        B: 'a + AsIoVec,
+    {
+        let iov = iov.into_new_iovec();
+
+        self.with_sqe(Some(iov), MsgInfo::VecAndAddress(address), |sqe| {
+            sqe.prep_rw(
+                IORING_OP_SENDMSG,
+                socket.as_raw_fd(),
+                0,
+                0,
+                Ordering::None,
+            );
+        })
+    }
+
     /// Send a buffer to the target socket
     /// or file-like destination.
     ///
@@ -210,7 +244,7 @@ impl Uring {
     {
         let iov = iov.into_new_iovec();
 
-        self.with_sqe(None, true, |sqe| {
+        self.with_sqe(None, MsgInfo::VecOnly, |sqe| {
             sqe.prep_rw(
                 IORING_OP_SEND,
                 stream.as_raw_fd(),
@@ -246,6 +280,33 @@ impl Uring {
         self.recv_ordered(stream, iov, Ordering::None)
     }
 
+    /// Receive a message from a sessionless datagram
+    /// socket.
+    ///
+    /// Returns the length that was successfuly read and
+    /// the socket address of the peer.
+    pub fn recv_from<'a, F, B>(
+        &'a self,
+        socket: &'a F,
+        iov: &'a B,
+    ) -> Completion<'a, (usize, ::std::net::SocketAddr)>
+    where
+        F: AsRawFd,
+        B: AsIoVec + AsIoVecMut,
+    {
+        let iov = iov.into_new_iovec();
+
+        self.with_sqe(Some(iov), MsgInfo::VecOnly, |sqe| {
+            sqe.prep_rw(
+                IORING_OP_RECVMSG,
+                socket.as_raw_fd(),
+                0,
+                0,
+                Ordering::None,
+            );
+        })
+    }
+
     /// Receive data from the target socket
     /// or file-like destination, and place
     /// it in the given buffer.
@@ -271,7 +332,7 @@ impl Uring {
     {
         let iov = iov.into_new_iovec();
 
-        self.with_sqe(Some(iov), true, |sqe| {
+        self.with_sqe(Some(iov), MsgInfo::VecOnly, |sqe| {
             sqe.prep_rw(
                 IORING_OP_RECV,
                 stream.as_raw_fd(),
@@ -343,7 +404,7 @@ impl Uring {
         file: &'a File,
         ordering: Ordering,
     ) -> Completion<'a, ()> {
-        self.with_sqe(None, false, |sqe| {
+        self.with_sqe(None, MsgInfo::None, |sqe| {
             sqe.prep_rw(
                 IORING_OP_FSYNC,
                 file.as_raw_fd(),
@@ -413,7 +474,7 @@ impl Uring {
         file: &'a File,
         ordering: Ordering,
     ) -> Completion<'a, ()> {
-        self.with_sqe(None, false, |mut sqe| {
+        self.with_sqe(None, MsgInfo::None, |mut sqe| {
             sqe.prep_rw(
                 IORING_OP_FSYNC,
                 file.as_raw_fd(),
@@ -471,7 +532,7 @@ impl Uring {
         len: usize,
         ordering: Ordering,
     ) -> Completion<'a, ()> {
-        self.with_sqe(None, false, |mut sqe| {
+        self.with_sqe(None, MsgInfo::None, |mut sqe| {
             sqe.prep_rw(
                 IORING_OP_SYNC_FILE_RANGE,
                 file.as_raw_fd(),
@@ -551,7 +612,7 @@ impl Uring {
     {
         self.with_sqe(
             Some(iov.into_new_iovec()),
-            false,
+            MsgInfo::None,
             |sqe| {
                 sqe.prep_rw(
                     IORING_OP_WRITEV,
@@ -621,7 +682,7 @@ impl Uring {
     {
         self.with_sqe(
             Some(iov.into_new_iovec()),
-            false,
+            MsgInfo::None,
             |sqe| {
                 sqe.prep_rw(
                     IORING_OP_READV,
@@ -646,7 +707,7 @@ impl Uring {
         &'a self,
         ordering: Ordering,
     ) -> Completion<'a, ()> {
-        self.with_sqe(None, false, |sqe| {
+        self.with_sqe(None, MsgInfo::None, |sqe| {
             sqe.prep_rw(IORING_OP_NOP, 0, 1, 0, ordering)
         })
     }
@@ -681,19 +742,28 @@ impl Uring {
     fn with_sqe<'a, F, C>(
         &'a self,
         iovec: Option<libc::iovec>,
-        msghdr: bool,
+        msg: MsgInfo<'a>,
         f: F,
     ) -> Completion<'a, C>
     where
         F: FnOnce(&mut io_uring_sqe),
-        C: FromCqe,
+        C: FromCqeData,
     {
         let ticket = self.ticket_queue.pop();
         let (mut completion, filler) = pair(self);
 
+        let (msghdr, address) = match msg {
+            MsgInfo::None => (false, None),
+            MsgInfo::VecOnly => (true, None),
+            MsgInfo::VecAndAddress(address) => {
+                let address = addr2raw(address);
+                (true, Some(address))
+            },
+        };
+
         let data_ptr = self
             .in_flight
-            .insert(ticket, iovec, msghdr, filler);
+            .insert(ticket, iovec, address, msghdr, filler);
 
         let mut sq = {
             let _get_sq_mu = Measure::new(&M.sq_mu_wait);
@@ -727,26 +797,5 @@ impl Uring {
         f(sqe);
 
         completion
-    }
-}
-
-fn addr2raw(
-    addr: &std::net::SocketAddr,
-) -> (*const libc::sockaddr, libc::socklen_t) {
-    match *addr {
-        std::net::SocketAddr::V4(ref a) => {
-            let b: *const std::net::SocketAddrV4 = a;
-            (
-                b as *const _,
-                std::mem::size_of_val(a) as libc::socklen_t,
-            )
-        }
-        std::net::SocketAddr::V6(ref a) => {
-            let b: *const std::net::SocketAddrV6 = a;
-            (
-                b as *const _,
-                std::mem::size_of_val(a) as libc::socklen_t,
-            )
-        }
     }
 }
