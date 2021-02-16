@@ -54,11 +54,11 @@ where
             }
         }
 
-        // compare_and_swap returns the last value on success,
-        // or the current value on failure. We want to keep
+        // compare_exchange returns Ok with the last value on success,
+        // or Err with the current value on failure. We want to keep
         // looping as long as it returns true, so we don't need
         // any explicit conversion here.
-        while self.init_mu.compare_and_swap(false, true, SeqCst) {}
+        while self.init_mu.compare_exchange(false, true, SeqCst, SeqCst).unwrap_or_else(|x| x) {}
 
         {
             let value_ptr = self.value.load(SeqCst);
