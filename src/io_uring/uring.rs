@@ -271,7 +271,7 @@ impl Uring {
     {
         let iov = iov.into_new_iovec();
 
-        self.with_sqe(Some(iov), true, |sqe| {
+        self.with_sqe(None, true, |sqe| {
             sqe.prep_rw(
                 IORING_OP_RECV,
                 stream.as_raw_fd(),
@@ -279,6 +279,7 @@ impl Uring {
                 0,
                 ordering,
             );
+            sqe.addr = iov.iov_base as u64;
             sqe.len = u32::try_from(iov.iov_len).unwrap();
         })
     }
