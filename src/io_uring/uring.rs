@@ -1,4 +1,6 @@
 use super::*;
+use crate::io_uring::syscall::register;
+use crate::io_uring::kernel_types::{io_uring_probe, io_uring_probe_op};
 
 /// Nice bindings for the shiny new linux IO system
 #[derive(Debug, Clone)]
@@ -75,6 +77,30 @@ impl Uring {
             loaded: 0.into(),
             submitted: 0.into(),
         }
+    }
+
+    /// Gets a list of io_uring opcodes supported by the
+    /// running kernel.
+    ///
+    /// # Warning
+    ///
+    /// This only becomes usable on linux kernels
+    /// 5.6 and up.
+    pub fn probe_ops(
+        &self
+    ) -> io::Result<Vec<io_uring_probe_op>>
+    {
+        let probe = io_uring_probe::default();
+        let probe_ptr: *const io_uring_probe = &probe;
+
+        register(
+            self.ring_fd.as_raw_fd(),
+            IORING_REGISTER_PROBE,
+            probe_ptr as *const libc::c_void,
+            256
+        )?;
+
+        Ok(probe.ops[0..probe.last_op as usize + 1].into())
     }
 
     pub(crate) fn ensure_submitted(
