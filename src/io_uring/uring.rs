@@ -675,7 +675,9 @@ impl Uring {
             self.sq.lock().unwrap()
         };
         let _hold_sq_mu = Measure::new(&M.sq_mu_hold);
-        sq.submit_all(self.flags, self.ring_fd);
+        let submitted =
+            sq.submit_all(self.flags, self.ring_fd);
+        self.submitted.fetch_add(submitted, Release);
     }
 
     fn with_sqe<'a, F, C>(
